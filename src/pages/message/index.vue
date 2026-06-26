@@ -19,7 +19,7 @@
     </view>
 
     <view v-if="!filteredList.length" class="empty">
-      <text class="empty-icon">🔔</text>
+      <view class="empty-icon-wrap"><CategoryIcon name="bell" :size="60" color="#ccc" /></view>
       <text class="empty-text">暂无消息</text>
     </view>
     <view v-else class="message-list">
@@ -30,7 +30,9 @@
         @tap="onRead(m)"
       >
         <view class="m-icon-wrap">
-          <text class="m-icon">{{ typeIcon(m.type) }}</text>
+          <view :class="['m-icon-circle', `m-icon-${m.type}`]">
+            <CategoryIcon :name="typeIcon(m.type)" :size="20" color="#fff" />
+          </view>
           <text v-if="m.unread" class="m-dot"></text>
         </view>
         <view class="m-body">
@@ -87,12 +89,12 @@ const filteredList = computed(() => {
 
 function typeIcon(type: string) {
   const map: Record<string, string> = {
-    order: '📦',
-    coupon: '🎫',
-    system: '🔔',
-    promo: '🔥'
+    order: 'package',
+    coupon: 'coupon-card',
+    system: 'bell',
+    promo: 'fire'
   }
-  return map[type] || '📢'
+  return map[type] || 'megaphone'
 }
 
 async function onRead(m: any) {
@@ -180,7 +182,7 @@ async function markAllRead() {
   text-align: center;
   padding: 80px 0;
   color: $text-muted;
-  .empty-icon { display: block; font-size: 60px; opacity: 0.5; margin-bottom: 12px; }
+  .empty-icon-wrap { display: flex; justify-content: center; margin-bottom: 12px; opacity: 0.5; }
 }
 
 .message-list {
@@ -209,16 +211,30 @@ async function markAllRead() {
   margin-right: 12px;
 }
 
-.m-icon {
+.m-icon-circle {
   width: 40px;
   height: 40px;
   border-radius: 50%;
   background: linear-gradient(135deg, $primary, $primary-light);
-  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+}
+
+.m-icon-order {
+  background: linear-gradient(135deg, #4CAF50, #66BB6A);
+}
+
+.m-icon-coupon {
+  background: linear-gradient(135deg, #FF9800, #FFB74D);
+}
+
+.m-icon-system {
+  background: linear-gradient(135deg, #2196F3, #42A5F5);
+}
+
+.m-icon-promo {
+  background: linear-gradient(135deg, #F44336, #EF5350);
 }
 
 .m-dot {

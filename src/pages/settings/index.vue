@@ -108,7 +108,7 @@ function goBack() {
 }
 
 function goProfile() {
-  uni.showToast({ title: '个人资料编辑开发中', icon: 'none' })
+  uni.navigateTo({ url: '/pages/profile/edit' })
 }
 
 function openAgreement(title: string) {
@@ -178,8 +178,8 @@ function onLogout() {
 }
 
 .navbar {
-  height: calc($status-bar-height + $navbar-height);
-  padding-top: $status-bar-height;
+  height: calc(var(--status-bar-height, 20px) + 44px);
+  padding-top: var(--status-bar-height, 20px);
   background: $card;
   display: flex;
   align-items: center;

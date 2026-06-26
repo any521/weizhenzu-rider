@@ -27,12 +27,12 @@ export function normalizeError(error: any): ApiError {
   }
 
   // 账号被禁用
-  if (error?.code === ErrorCode.ACCOUNT_DISABLED) {
-    return { type: 'business', code: ErrorCode.ACCOUNT_DISABLED, statusCode: error?.statusCode, message: '账号已被禁用，请联系客服' }
+  if (error?.code === ErrorCode.USER_DISABLED) {
+    return { type: 'business', code: ErrorCode.USER_DISABLED, statusCode: error?.statusCode, message: '账号已被禁用，请联系客服' }
   }
 
   // HTTP 状态码 / 通用 code 优先
-  if (error?.statusCode === 401 || error?.code === 401 || error?.code === ErrorCode.TOKEN_EXPIRED) {
+  if (error?.statusCode === 401 || error?.code === 401 || error?.code === ErrorCode.UNAUTHORIZED) {
     return { type: 'http', code: 401, statusCode: error?.statusCode, message: '登录已过期，请重新登录' }
   }
 

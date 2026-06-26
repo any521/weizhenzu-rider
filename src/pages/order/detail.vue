@@ -53,11 +53,29 @@
     <view class="order-section">
       <view class="section-head"><text>订单信息</text></view>
       <view class="merchant-row">
-        <view class="merchant-icon-sm" :style="{ background: 'linear-gradient(135deg, #FF6B35, #FFC107)' }">{{ order.merchant.icon }}</view>
+        <view class="merchant-icon-sm-wrap">
+          <SmartImage
+            :src="merchantLogoUrl"
+            bg="linear-gradient(135deg, #FF6B35, #FFC107)"
+            icon="shop"
+            :iconSize="16"
+            radius="6px"
+            mode="aspectFill"
+          />
+        </view>
         <text class="merchant-name-sm">{{ order.merchant.name }}</text>
       </view>
       <view v-for="(it, idx) in order.items" :key="idx" class="item-row">
-        <view class="item-img" :style="{ background: it.bg }"></view>
+        <view class="item-img-wrap">
+          <SmartImage
+            :src="it.imageUrl"
+            :bg="it.bg"
+            icon="meishi"
+            :iconSize="22"
+            radius="6px"
+            mode="aspectFill"
+          />
+        </view>
         <view class="item-info">
           <view class="item-name">{{ it.name }}</view>
           <view class="item-spec">{{ it.spec }}</view>
@@ -102,6 +120,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { getOrderDetail, getOrderDelivery, cancelOrder, confirmReceive, cancelRefund } from '@/api'
 import type { OrderVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 
 const rawOrder = ref<OrderVO | null>(null)
 const rider = ref<any>(null)
@@ -110,13 +129,32 @@ const loading = ref(false)
 const deliverySteps = ['已下单', '商家接单', '骑手取餐', '配送中', '已送达']
 
 const statusMap: Record<number, { type: string; icon: string; sub: string }> = {
-  0: { type: 'warning', icon: 'pay', sub: '请在15分钟内完成支付' },
+  0: { type: 'warning', icon: 'pay', sub: '请在30分钟内完成支付' },
   1: { type: 'warning', icon: 'shop', sub: '商家接单中，请耐心等待' },
   5: { type: 'primary', icon: 'package', sub: '骑手正在配送中' },
   6: { type: 'success', icon: 'check', sub: '订单已送达，期待您的评价' },
   7: { type: 'success', icon: 'check', sub: '感谢您的信任，期待再次光临' },
   9: { type: 'warning', icon: 'refund', sub: '退款申请处理中，请耐心等待' }
 }
+
+const payTypeMap: Record<number, string> = {
+  1: '支付宝',
+  2: '微信支付',
+  3: '余额支付'
+}
+
+function isImageUrl(url?: string): boolean {
+  if (!url) return false
+  const trimmed = url.trim()
+  if (!trimmed) return false
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')
+}
+
+const merchantLogoUrl = computed(() => {
+  const raw = rawOrder.value
+  if (!raw?.merchantLogo) return ''
+  return isImageUrl(raw.merchantLogo) ? raw.merchantLogo : ''
+})
 
 const order = computed(() => {
   const raw = rawOrder.value
@@ -165,7 +203,8 @@ const order = computed(() => {
       spec: it.specName || '',
       price: it.price || 0,
       qty: it.quantity || 0,
-      bg: dishBgList[(it.dishId || idx) % dishBgList.length]
+      bg: dishBgList[(it.dishId || idx) % dishBgList.length],
+      imageUrl: it.dishImage && isImageUrl(it.dishImage) ? it.dishImage : ''
     })),
     goodsAmount: raw.goodsAmount || 0,
     deliveryFee: raw.deliveryFee || 0,
@@ -175,7 +214,7 @@ const order = computed(() => {
     orderTime: raw.createdAt || '',
     address: raw.address ? `${[raw.address.province, raw.address.city, raw.address.district].filter(Boolean).join(' ')} ${raw.address.detail}` : '',
     contact: raw.address ? `${raw.address.contactName || ''} ${raw.address.contactPhone || ''}` : '',
-    payType: status === 0 ? '未支付' : '在线支付',
+    payType: raw.payStatus === 1 ? (payTypeMap[raw.payType || 0] || '在线支付') : '未支付',
     raw
   }
 })
@@ -207,17 +246,29 @@ const statusActions = computed(() => {
     { text: '联系骑手', primary: true }
   ]
   if (code === 6) return [
-    { text: '查看配送', primary: false },
-    { text: '评价', primary: true }
+    { text: '评价', primary: false },
+    { text: '确认收货', primary: true }
+  ]
+  if (code === 7) {
+    const isRated = order.value.raw?.isRated === 1
+    return isRated
+      ? [{ text: '再来一单', primary: true }]
+      : [{ text: '再来一单', primary: false }, { text: '评价', primary: true }]
+  }
+  if (code === 8) return [
+    { text: '删除订单', primary: false },
+    { text: '再来一单', primary: true }
   ]
   if (code === 9) return [
     { text: '撤销申请', primary: false },
     { text: '查看进度', primary: true }
   ]
-  return [
+  if (code === 10) return [
     { text: '删除订单', primary: false },
-    { text: '再来一单', primary: false },
-    { text: '评价', primary: true }
+    { text: '再来一单', primary: true }
+  ]
+  return [
+    { text: '再来一单', primary: false }
   ]
 })
 
@@ -573,15 +624,12 @@ function onAction(btn: { text: string; primary: boolean }) {
   margin-bottom: 12px;
 }
 
-.merchant-icon-sm {
+.merchant-icon-sm-wrap {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-name-sm {
@@ -599,6 +647,14 @@ function onAction(btn: { text: string; primary: boolean }) {
 
 .item-row:last-child {
   border-bottom: none;
+}
+
+.item-img-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .item-img {

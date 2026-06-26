@@ -29,29 +29,30 @@
       </view>
     </view>
 
-    <!-- 分类横向滚动 -->
-    <scroll-view scroll-x class="category-scroll" :show-scrollbar="false">
-      <view class="category-row">
+    <!-- 分类两行网格 -->
+    <view class="category-section">
+      <view class="category-grid">
         <view
           v-for="cat in displayCategories"
           :key="cat.id"
           class="category-item"
           @tap="onCategoryTap(cat)"
         >
-          <view class="icon-wrapper" :style="{ background: cat.bg }">
-            <CategoryIcon :name="cat.iconName" :size="26" />
+          <view v-if="cat.isMore" class="icon-wrapper" :style="{ background: cat.bg }">
+            <CategoryIcon name="more" :size="30" />
           </view>
+          <Category3DIcon v-else :icon="cat.icon" :name="cat.name" :size="64" />
           <text class="category-name">{{ cat.name }}</text>
         </view>
       </view>
-    </scroll-view>
+    </view>
 
     <!-- 推荐商家 -->
     <view class="deal-section">
       <view class="deal-header">
         <view class="deal-title">
-          <text class="deal-name">推荐商家</text>
-          <text class="deal-tag">人气好店</text>
+          <text class="deal-name">精选推荐</text>
+          <text class="deal-tag">人气好品</text>
         </view>
         <text class="deal-more">更多 ›</text>
       </view>
@@ -60,9 +61,18 @@
           v-for="d in deals"
           :key="d.id"
           class="deal-card"
-          @tap="goMerchantDetail(d.merchantId)"
+          @tap="goDishDetail(d.id)"
         >
-          <view class="deal-img" :style="{ background: d.bg || 'linear-gradient(135deg, #FF6B35, #FFC107)' }"></view>
+          <view class="deal-img-wrap">
+            <SmartImage
+              :src="d.imageUrl"
+              :bg="d.bg || 'linear-gradient(135deg, #FF6B35, #FFC107)'"
+              icon="meishi"
+              :iconSize="28"
+              radius="10px"
+              mode="aspectFill"
+            />
+          </view>
           <text class="deal-food">{{ d.name }}</text>
           <text class="deal-merchant">{{ d.merchantName }}</text>
           <view class="deal-bottom">
@@ -98,7 +108,7 @@
     <view class="merchant-section">
       <view class="section-header">
         <text class="section-title">附近商家</text>
-        <text class="section-sub">特价外卖</text>
+        <text class="section-sub">{{ activeTopTab === '自取' ? '到店自取' : '特价外卖' }}</text>
         <text class="section-more" @tap="goMerchantList">一键下单</text>
       </view>
       <view class="filter-bar">
@@ -125,12 +135,24 @@
           class="merchant-card"
           @tap="goMerchantDetail(m.id)"
         >
-          <view class="merchant-img" :style="{ background: m.bg }">
-            <text class="merchant-logo-text">{{ m.logo }}</text>
+          <view class="merchant-img-wrap">
+            <SmartImage
+              v-if="m.imageUrl"
+              :src="m.imageUrl"
+              :bg="m.bg"
+              icon="shop"
+              :iconSize="28"
+              radius="8px"
+              mode="aspectFill"
+            />
+            <view v-else class="merchant-img" :style="{ background: m.bg }">
+              <text class="merchant-logo-text">{{ m.logo }}</text>
+            </view>
           </view>
           <view class="merchant-info">
             <view class="merchant-name">
               <text>{{ m.name }}</text>
+              <text v-if="activeTopTab === '自取'" class="pickup-badge">自取</text>
               <CategoryIcon v-if="m.top" name="star" :size="10" class="top-star" />
             </view>
             <view class="merchant-meta">
@@ -139,12 +161,15 @@
                 <text class="score-num">{{ m.rating }}</text>
               </view>
               <text>月售 {{ m.monthlySales > 999 ? '1000+' : m.monthlySales }}</text>
-              <text class="meta-right">{{ m.deliveryTime }} · {{ m.distance || '920m' }}</text>
+              <text class="meta-right">{{ activeTopTab === '自取' ? '到店自取' : (m.deliveryTime + ' · ' + (m.distance || '920m')) }}</text>
             </view>
-            <view class="merchant-price">
+            <view v-if="activeTopTab !== '自取'" class="merchant-price">
               <text>起送 ¥{{ m.minOrder }}</text>
               <text>配送约¥{{ m.deliveryFee }}</text>
               <text v-if="m.perCapita">人均¥{{ m.perCapita }}</text>
+            </view>
+            <view v-else-if="m.perCapita" class="merchant-price">
+              <text>人均¥{{ m.perCapita }}</text>
             </view>
             <view class="merchant-tags">
               <text v-for="(tag, idx) in m.tags" :key="idx" :class="['tag', `tag-${tag.type}`]">{{ tag.text }}</text>
@@ -176,9 +201,10 @@
                 class="group-item"
                 @tap="onCategoryTap(cat)"
               >
-                <view class="icon-wrapper" :style="{ background: cat.bg }">
-                  <CategoryIcon :name="cat.iconName" :size="26" />
+                <view v-if="cat.isMore" class="icon-wrapper" :style="{ background: cat.bg }">
+                  <CategoryIcon name="more" :size="26" />
                 </view>
+                <Category3DIcon v-else :icon="cat.icon" :name="cat.name" :size="52" />
                 <text class="category-name">{{ cat.name }}</text>
               </view>
             </view>
@@ -191,15 +217,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getMerchantCategories, getMerchantPage, getAvailableCoupons, getRecommendDishes } from '@/api/index'
+import { getMerchantCategories, getMerchantPage, getAvailableCoupons, getRecommendDishes, receiveCoupon, getDefaultAddress, addFavorite, removeFavorite, getFavorites } from '@/api/index'
 import type { MerchantCategoryVO, MerchantCardVO, CouponVO, RecommendDishVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import Category3DIcon from '@/components/Category3DIcon/Category3DIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 import { useTabStore } from '@/store/tab'
+import { useUserStore } from '@/store/user'
+import { recommendDishesToCard } from '@/utils/dataTransform'
 
 const tabStore = useTabStore()
+const userStore = useUserStore()
 const locationText = ref('请选择地址')
 const merchants = ref<MerchantCardVO[]>([])
 const categories = ref<MerchantCategoryVO[]>([])
@@ -210,8 +241,14 @@ const showMorePanel = ref(false)
 const activeTopTab = ref('外卖')
 const activeFilter = ref('综合排序')
 
-const topTabs = ['外卖', '首页', '自取']
+const topTabs = ['外卖', '自取']
 const filters = ['综合排序', '销量最高', '距离最近', '筛选']
+
+/** 已收藏商家ID集合 */
+const favoriteIds = ref<Set<string>>(new Set())
+
+/** 当前配送类型: 1=外卖, 2=自取 */
+const deliveryType = computed(() => (activeTopTab.value === '自取' ? 2 : 1))
 
 const CATEGORY_BG: Record<string, string> = {
   美食: 'linear-gradient(135deg, #FF6B35, #FF8C42)',
@@ -302,12 +339,30 @@ function resolveColor(color?: string, name?: string): string {
 }
 
 function categoryGroup(name: string): string {
-  if (['美食', '早餐', '夜宵', '汉堡西餐', '面食', '堂食店', '小美餐厅', '面包蛋糕', '包子粥铺'].includes(name)) return '美食餐饮'
-  if (['甜品饮品', '咖啡奶茶', '送奶茶'].includes(name)) return '甜品饮品'
-  if (['超市便利', '果蔬生鲜', '蔬菜水果', '看病买药'].includes(name)) return '生活服务'
-  if (['拼好饭', '神枪手', '天天津贴', '学生价'].includes(name)) return '优惠助手'
-  if (['大牌专送', '必点榜', '每日大牌'].includes(name)) return '特色推荐'
-  if (['跑腿代购'].includes(name)) return '跑腿代购'
+  // 美食餐饮类
+  if (/美食|便当|快餐|简餐|炒饭|盖饭|黄焖鸡|中式快餐/.test(name)) return '美食餐饮'
+  // 火锅烧烤类
+  if (/火锅|烧烤|烤串|烤肉|香锅|干锅|麻辣|串串|小龙虾|冒菜/.test(name)) return '火锅烧烤'
+  // 汉堡西餐类
+  if (/汉堡|披萨|西餐|牛排|西式|炸鸡|炸串|肯德基|麦当劳/.test(name)) return '汉堡西餐'
+  // 地方菜系
+  if (/川菜|湘菜|粤菜|东北菜|地方菜|菜系|海鲜/.test(name)) return '地方菜系'
+  // 面食粥点
+  if (/面|粉|米线|粥|包子|早餐|早点|煎饼|豆浆|汤/.test(name)) return '面食粥点'
+  // 异国料理
+  if (/寿司|日料|东南亚|泰|韩|料理/.test(name)) return '异国料理'
+  // 轻食沙拉
+  if (/轻食|沙拉|素食|减脂/.test(name)) return '轻食沙拉'
+  // 甜品饮品类
+  if (/甜品|甜点|烘焙|蛋糕|面包|奶茶|果汁|饮品|饮料|咖啡|冰淇淋|冰激凌|奶盖|茶饮/.test(name)) return '甜品饮品'
+  // 生鲜商超类
+  if (/生鲜|果蔬|水果|蔬菜|超市|便利|商店|百货|零食/.test(name)) return '生鲜商超'
+  // 生活服务类
+  if (/药|医药|健康|药房|药店|鲜花|花束|母婴|宠物|文具|数码|美妆|个护/.test(name)) return '生活服务'
+  // 跑腿/特色
+  if (/跑腿|代购|配送|大牌|连锁|品牌|特产|伴手礼/.test(name)) return '特色推荐'
+  // 夜宵
+  if (/夜宵|宵夜|夜市|小吃/.test(name)) return '夜宵小吃'
   return '全部'
 }
 
@@ -315,16 +370,18 @@ const allCategories = computed(() => {
   const list = categories.value.map((c) => ({
     id: c.id,
     name: c.name,
-    iconName: resolveIcon(c.icon, c.name),
-    bg: resolveColor(c.color, c.name),
+    icon: c.icon,
+    color: c.color,
+    bg: c.color ? `linear-gradient(135deg, ${c.color}, ${c.color}CC)` : 'linear-gradient(135deg, #FF6B35, #FF8C42)',
     group: categoryGroup(c.name),
     isMore: false,
   }))
-  // 追加“全部”入口
+  // 追加"全部"入口
   list.push({
     id: 0,
     name: '全部',
-    iconName: 'more',
+    icon: 'more',
+    color: '#607D8B',
     bg: 'linear-gradient(135deg, #607D8B, #90A4AE)',
     group: '全部',
     isMore: true,
@@ -332,7 +389,14 @@ const allCategories = computed(() => {
   return list
 })
 
-const displayCategories = computed(() => allCategories.value.slice(0, 11))
+const displayCategories = computed(() => {
+  // 两行网格，每行5个，共10个（含"全部"入口）
+  const all = allCategories.value
+  // 确保"全部"入口在最后一位，前面展示9个分类
+  const realCount = all.length - 1 // 减去"全部"入口
+  const take = Math.min(realCount, 9)
+  return [...all.slice(0, take), all[all.length - 1]]
+})
 
 const categoryGroups = computed(() => {
   const map: Record<string, any[]> = {}
@@ -345,12 +409,25 @@ const categoryGroups = computed(() => {
 
 onShow(() => {
   tabStore.setActiveTab('/pages/index/index')
+  // 每次显示页面时刷新优惠券列表（登录状态可能变化）
+  loadCoupons()
+  // 刷新默认地址
+  loadDefaultAddress()
+  // 刷新收藏状态
+  loadFavorites()
 })
 
 onMounted(() => {
   loadCategories()
   loadMerchants()
   loadCoupons()
+  loadDeals()
+  loadFavorites()
+})
+
+// 切换外卖/自取tab时重新加载商家和推荐
+watch(activeTopTab, () => {
+  loadMerchants()
   loadDeals()
 })
 
@@ -365,8 +442,11 @@ async function loadCategories() {
 async function loadMerchants() {
   loading.value = true
   try {
-    const page = await getMerchantPage({ current: 1, size: 10 })
-    merchants.value = page.list
+    const dt = deliveryType.value
+    const page = await getMerchantPage({ current: 1, size: 10, deliveryType: dt })
+    // 前端兜底过滤：外卖模式只显示 supportDelivery=1，自取模式只显示 supportPickup=1
+    const supportField = dt === 2 ? 'supportPickup' : 'supportDelivery'
+    merchants.value = page.list.filter((m) => m[supportField] !== 0)
   } catch (e) {
     console.error('加载商家失败', e)
   } finally {
@@ -376,7 +456,9 @@ async function loadMerchants() {
 
 async function loadCoupons() {
   try {
-    coupons.value = await getAvailableCoupons()
+    const list = await getAvailableCoupons()
+    // 只展示 canReceive=true 的优惠券（过滤已领取完、已过期的券）
+    coupons.value = (list || []).filter((c: CouponVO) => c.canReceive === true)
   } catch (e) {
     console.error('加载优惠券失败', e)
     coupons.value = []
@@ -385,10 +467,51 @@ async function loadCoupons() {
 
 async function loadDeals() {
   try {
-    deals.value = await getRecommendDishes(8)
+    const list = await getRecommendDishes(8)
+    deals.value = recommendDishesToCard(list)
   } catch (e) {
     console.error('加载推荐商家失败', e)
     deals.value = []
+  }
+}
+
+async function loadFavorites() {
+  if (!userStore.isLoggedIn) {
+    favoriteIds.value = new Set()
+    return
+  }
+  try {
+    const page = await getFavorites({ current: 1, size: 100 })
+    const ids = new Set<string>()
+    ;(page.list || []).forEach((m) => ids.add(String(m.id)))
+    favoriteIds.value = ids
+  } catch (e) {
+    console.error('加载收藏状态失败', e)
+  }
+}
+
+async function toggleFavorite(m: MerchantCardVO) {
+  if (!userStore.isLoggedIn) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  const id = String(m.id)
+  const isFav = favoriteIds.value.has(id)
+  try {
+    if (isFav) {
+      await removeFavorite(m.id)
+      favoriteIds.value.delete(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已取消收藏', icon: 'none' })
+    } else {
+      await addFavorite(m.id)
+      favoriteIds.value.add(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已收藏', icon: 'success' })
+    }
+  } catch (e) {
+    console.error('收藏操作失败', e)
   }
 }
 
@@ -409,9 +532,25 @@ function couponRule(c: CouponVO): string {
   return '无门槛'
 }
 
-function onCouponTap(c: CouponVO) {
+async function onCouponTap(c: CouponVO) {
   if (c.canReceive) {
-    uni.showToast({ title: '请登录后领取', icon: 'none' })
+    // 未登录先跳转登录
+    if (!userStore.isLoggedIn) {
+      uni.navigateTo({ url: '/pages/login/login' })
+      return
+    }
+    // 已登录调用领券接口
+    try {
+      uni.showLoading({ title: '领取中...' })
+      await receiveCoupon(c.id)
+      uni.hideLoading()
+      uni.showToast({ title: '领取成功', icon: 'success' })
+      // 刷新优惠券列表
+      loadCoupons()
+    } catch (e) {
+      uni.hideLoading()
+      console.error('领取优惠券失败', e)
+    }
   } else {
     uni.navigateTo({ url: '/pages/coupon/index' })
   }
@@ -431,7 +570,21 @@ function closeMorePanel() {
 }
 
 function onLocationTap() {
-  uni.showToast({ title: '请使用地址选择', icon: 'none' })
+  uni.navigateTo({ url: '/pages/address/list' })
+}
+
+async function loadDefaultAddress() {
+  try {
+    const addr = await getDefaultAddress()
+    if (addr) {
+      const full = `${addr.region} ${addr.address}`.trim()
+      locationText.value = full.length > 20 ? full.substring(0, 20) + '...' : full
+    } else {
+      locationText.value = '请选择收货地址'
+    }
+  } catch (e) {
+    locationText.value = '请选择收货地址'
+  }
 }
 function goSearch() {
   uni.navigateTo({ url: '/pages/search/index' })
@@ -444,6 +597,9 @@ function goMerchantList() {
 }
 function goMerchantDetail(id: number | string) {
   uni.navigateTo({ url: `/pages/merchant/detail?id=${id}` })
+}
+function goDishDetail(id: number | string) {
+  uni.navigateTo({ url: `/pages/dish/detail?id=${id}` })
 }
 </script>
 
@@ -460,7 +616,7 @@ function goMerchantDetail(id: number | string) {
 
 .home-header {
   background: linear-gradient(180deg, $header-start 0%, $header-end 100%);
-  padding: 44px 16px 16px;
+  padding: calc(var(--status-bar-height, 20px) + 12px) 16px 16px;
   color: #fff;
 }
 
@@ -557,30 +713,29 @@ function goMerchantDetail(id: number | string) {
   border-radius: 16px;
 }
 
-.category-scroll {
+.category-section {
   background: #fff;
-  padding: 16px 0;
-  white-space: nowrap;
+  padding: 16px 12px 12px;
 }
 
-.category-row {
-  display: inline-flex;
-  padding: 0 12px;
-  gap: 18px;
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(2, auto);
+  gap: 12px 0;
 }
 
 .category-item {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  width: 56px;
 }
 
 .icon-wrapper {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -588,7 +743,7 @@ function goMerchantDetail(id: number | string) {
 }
 
 .category-name {
-  font-size: 11px;
+  font-size: 12px;
   color: $text;
   line-height: 1.2;
   text-align: center;
@@ -643,11 +798,12 @@ function goMerchantDetail(id: number | string) {
   margin-right: 10px;
 }
 
-.deal-img {
+.deal-img-wrap {
   width: 110px;
   height: 80px;
   border-radius: 10px;
   margin-bottom: 6px;
+  overflow: hidden;
 }
 
 .deal-food {
@@ -854,10 +1010,38 @@ function goMerchantDetail(id: number | string) {
   gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid $border;
+  position: relative;
 }
 
 .merchant-card:last-child {
   border-bottom: none;
+}
+
+.fav-btn {
+  position: absolute;
+  top: 14px;
+  right: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-muted;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.fav-btn.fav-active {
+  color: $danger;
+  opacity: 1;
+}
+
+.merchant-img-wrap {
+  width: 76px;
+  height: 76px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-img {
@@ -894,6 +1078,16 @@ function goMerchantDetail(id: number | string) {
 
 .top-star {
   color: $primary;
+}
+
+.pickup-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: $primary;
+  background: rgba($primary, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
 }
 
 .merchant-meta {

@@ -43,6 +43,28 @@ export const smsLogin = (phone: string, code: string): Promise<LoginVO> =>
 export const passwordLogin = (phone: string, password: string): Promise<LoginVO> =>
   post('/api/user/auth/login/password', { phone, password })
 
+/** 发送邮箱验证码 */
+export const sendEmailCode = (email: string, scene: string = 'LOGIN') => {
+  // BIND_PHONE 场景后端从登录上下文获取真实邮箱，无需前端传 email
+  const payload = scene === 'BIND_PHONE' ? { scene } : { email, scene }
+  return post('/api/user/auth/email-code', payload)
+}
+
+/** 邮箱登录（未注册自动创建账号） */
+export const emailLogin = (email: string, code: string): Promise<LoginVO> =>
+  post('/api/user/auth/login/email', { email, code })
+
+/** 邮箱注册 */
+export const emailRegister = (data: { email: string; code: string; nickname?: string }) =>
+  post('/api/user/auth/register/email', data)
+
+/** 绑定手机号（需邮箱验证码二次确认） */
+export const bindPhone = (data: { phone: string; code: string }) =>
+  post('/api/user/auth/bind-phone', data)
+
+/** 解绑手机号 */
+export const unbindPhone = () => del('/api/user/profile/phone')
+
 export const refreshToken = (refreshToken: string) =>
   post('/api/user/auth/refresh', { refreshToken })
 
@@ -56,6 +78,35 @@ export const updateUserProfile = (data: Partial<UserVO>) => put('/api/user/profi
 export const updatePassword = (data: { oldPassword: string; newPassword: string }) =>
   put('/api/user/profile/password', data)
 
+/** 上传图片（返回图片URL） */
+export const uploadImage = (filePath: string): Promise<{ url: string }> => {
+  return new Promise((resolve, reject) => {
+    const token = uni.getStorageSync('wzz_token') || ''
+    const BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8080'
+    uni.uploadFile({
+      url: `${BASE_URL}/api/public/files/upload/image`,
+      filePath,
+      name: 'file',
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success: (res) => {
+        try {
+          const body = JSON.parse(res.data)
+          if (body.code === 200 && body.data) {
+            // 兼容后端返回 {url} 或直接返回 URL 字符串
+            const url = typeof body.data === 'string' ? body.data : body.data.url
+            resolve({ url })
+          } else {
+            reject(new Error(body.message || '上传失败'))
+          }
+        } catch (e) {
+          reject(new Error('上传响应解析失败'))
+        }
+      },
+      fail: (err) => reject(err),
+    })
+  })
+}
+
 // ==================== 收货地址 ====================
 export const getAddressList = async (): Promise<AddressVO[]> => {
   const list = await get<AddressDTO[]>('/api/user/addresses')
@@ -67,7 +118,14 @@ export const getAddressDetail = async (id: number): Promise<AddressVO> => {
   return addressDtoToVo(dto)
 }
 
-export const getDefaultAddress = () => get<AddressDTO>('/api/user/addresses/default')
+export const getDefaultAddress = async (): Promise<AddressVO | null> => {
+  try {
+    const dto = await get<AddressDTO>('/api/user/addresses/default')
+    return dto ? addressDtoToVo(dto) : null
+  } catch (e) {
+    return null
+  }
+}
 
 export const addAddress = (data: Partial<AddressVO>) =>
   post('/api/user/addresses', addressVoToDto(data))
@@ -85,8 +143,10 @@ export const getMerchantCategories = () => get<MerchantCategoryVO[]>('/api/user/
 export interface MerchantPageParams {
   current?: number
   size?: number
-  categoryId?: number
+  categoryId?: number | string
   keyword?: string
+  /** 配送类型: 1=外卖, 2=自取 */
+  deliveryType?: number
 }
 
 export const getMerchantPage = async (params: MerchantPageParams): Promise<PageResult<MerchantCardVO>> => {
@@ -99,16 +159,20 @@ export const getMerchantDetail = (id: number | string) => get<MerchantVO>(`/api/
 
 export const getMerchantMenu = (id: number | string) => get<DishCategoryVO[]>(`/api/user/merchants/${id}/menu`)
 
-export const getMerchantReviews = (merchantId: number, params?: { current?: number; size?: number }) =>
-  get<PageResult<ReviewVO>>(`/api/user/merchants/${merchantId}/reviews`, params)
+export const getMerchantReviews = async (merchantId: number, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
+  const backend = await get<PageResultBackend<ReviewVO>>(`/api/user/merchants/${merchantId}/reviews`, params)
+  return pageBackendToFrontend(backend)
+}
 
 // ==================== 菜品 ====================
 export const getDishDetail = (id: number) => get<DishVO>(`/api/user/dishes/${id}`)
 
 export const getRecommendDishes = (size = 8) => get<RecommendDishVO[]>('/api/user/recommend/dishes', { size })
 
-export const getDishReviews = (dishId: number, params?: { current?: number; size?: number }) =>
-  get<PageResult<ReviewVO>>(`/api/user/dishes/${dishId}/reviews`, params)
+export const getDishReviews = async (dishId: number, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
+  const backend = await get<PageResultBackend<ReviewVO>>(`/api/user/dishes/${dishId}/reviews`, params)
+  return pageBackendToFrontend(backend)
+}
 
 // ==================== 购物车 ====================
 export const getCart = () => get<CartVO>('/api/user/cart')
@@ -145,8 +209,10 @@ export interface OrderCreatePayload {
 export const createOrder = (data: OrderCreatePayload) =>
   post<OrderCreateVO>('/api/user/orders', data, { showLoading: true, loadingText: '提交中' })
 
-export const getOrderPage = (params?: { status?: number; current?: number; size?: number }) =>
-  get<PageResult<OrderVO>>('/api/user/orders', params)
+export const getOrderPage = async (params?: { status?: number; current?: number; size?: number }): Promise<PageResult<OrderVO>> => {
+  const backend = await get<PageResultBackend<OrderVO>>('/api/user/orders', params)
+  return pageBackendToFrontend(backend)
+}
 
 export const getOrderDetail = (id: number | string) => get<OrderVO>(`/api/user/orders/${id}`)
 
@@ -164,7 +230,8 @@ export const getOrderDelivery = (id: number | string) => get<DeliveryVO>(`/api/u
 export const createPayment = (orderId: number | string, payType: number) =>
   post<PaymentVO>(`/api/user/payments/orders/${orderId}`, { payType }, { showLoading: true })
 
-export const getPaymentStatus = (paymentNo: string) => get<PaymentVO>(`/api/user/payments/${paymentNo}`)
+export const getPaymentStatus = (paymentNo: string, sync = false) =>
+  get<PaymentVO>(`/api/user/payments/${paymentNo}${sync ? '?sync=true' : ''}`)
 
 export const cancelPayment = (paymentNo: string) => post(`/api/user/payments/${paymentNo}/cancel`)
 
@@ -179,8 +246,10 @@ export interface RefundCreatePayload {
 export const createRefund = (data: RefundCreatePayload) =>
   post<RefundVO>('/api/user/refunds', data)
 
-export const getRefundList = (params?: { current?: number; size?: number }) =>
-  get<PageResult<RefundVO>>('/api/user/refunds', params)
+export const getRefundList = async (params?: { current?: number; size?: number }): Promise<PageResult<RefundVO>> => {
+  const backend = await get<PageResultBackend<RefundVO>>('/api/user/refunds', params)
+  return pageBackendToFrontend(backend)
+}
 
 export const getRefundDetail = (id: number | string) => get<RefundVO>(`/api/user/refunds/${id}`)
 
@@ -201,8 +270,10 @@ export interface ReviewCreatePayload {
 
 export const createReview = (data: ReviewCreatePayload) => post('/api/user/reviews', data)
 
-export const getMyReviews = (params?: { current?: number; size?: number }) =>
-  get<PageResult<ReviewVO>>('/api/user/reviews', params)
+export const getMyReviews = async (params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
+  const backend = await get<PageResultBackend<ReviewVO>>('/api/user/reviews', params)
+  return pageBackendToFrontend(backend)
+}
 
 // ==================== 优惠券 ====================
 export const getAvailableCoupons = (): Promise<CouponVO[]> => get<CouponVO[]>('/api/user/coupons/available')
@@ -218,11 +289,11 @@ export const getFavorites = async (params?: { current?: number; size?: number })
   return { ...page, list: merchantListVoToCard(page.list) }
 }
 
-export const addFavorite = (merchantId: number) => post(`/api/user/favorites/${merchantId}`)
+export const addFavorite = (merchantId: number | string) => post(`/api/user/favorites/${merchantId}`)
 
-export const removeFavorite = (merchantId: number) => del(`/api/user/favorites/${merchantId}`)
+export const removeFavorite = (merchantId: number | string) => del(`/api/user/favorites/${merchantId}`)
 
-export const isFavorite = (merchantId: number) => get<boolean>(`/api/user/favorites/${merchantId}/status`)
+export const isFavorite = (merchantId: number | string) => get<boolean>(`/api/user/favorites/${merchantId}/status`)
 
 // ==================== 消息 ====================
 export const getMessageList = (params: any) => get('/api/user/messages', params)

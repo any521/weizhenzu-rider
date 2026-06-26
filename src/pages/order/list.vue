@@ -27,21 +27,6 @@
       </view>
 
       <template v-else>
-        <view v-if="activeIdx === 0 && visitedShops.length" class="orders-shops">
-          <text class="orders-shops-title">买过的店</text>
-          <scroll-view scroll-x class="orders-shops-scroll" show-scrollbar="false">
-            <view class="orders-shops-list">
-              <view v-for="shop in visitedShops" :key="shop.id" class="orders-shop-card">
-                <view class="orders-shop-img" :style="{ background: shop.bg }">
-                  <CategoryIcon name="shop" :size="24" />
-                </view>
-                <text class="orders-shop-name">{{ shop.name }}</text>
-                <text class="orders-shop-count">买过 {{ shop.count }} 次</text>
-              </view>
-            </view>
-          </scroll-view>
-        </view>
-
         <view v-if="filteredOrders.length > 0" class="orders-list">
           <view
             v-for="order in filteredOrders"
@@ -50,8 +35,15 @@
           >
             <view class="orders-card-header">
               <view class="orders-merchant">
-                <view class="orders-merchant-img" :style="{ background: order.merchantBg }">
-                  <CategoryIcon name="shop" :size="18" />
+                <view class="orders-merchant-img-wrap">
+                  <SmartImage
+                    :src="order.merchantLogo"
+                    :bg="order.merchantBg"
+                    icon="shop"
+                    :iconSize="18"
+                    radius="4px"
+                    mode="aspectFill"
+                  />
                 </view>
                 <text class="orders-merchant-name">{{ order.merchantName }}</text>
                 <text class="orders-merchant-arrow">></text>
@@ -60,8 +52,15 @@
             </view>
 
             <view class="orders-card-body" @tap="goDetail(order.id)">
-              <view class="orders-dish-img" :style="{ background: order.merchantBg }">
-                <CategoryIcon :name="order.icon || 'package'" :size="28" />
+              <view class="orders-dish-img-wrap">
+                <SmartImage
+                  :src="order.dishImage"
+                  :bg="order.merchantBg"
+                  :icon="order.icon || 'package'"
+                  :iconSize="28"
+                  radius="8px"
+                  mode="aspectFill"
+                />
               </view>
               <view class="orders-dish-info">
                 <text class="orders-dish-name">{{ order.dishName }}</text>
@@ -117,6 +116,7 @@ import { useTabStore } from '@/store/tab'
 import { getOrderPage } from '@/api'
 import type { OrderVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 
 const tabStore = useTabStore()
@@ -127,11 +127,6 @@ const loading = ref(false)
 const bodyHeight = ref(600)
 const rawOrders = ref<OrderVO[]>([])
 
-onShow(() => {
-  tabStore.setActiveTab('/pages/order/list')
-  fetchOrders()
-})
-
 onLoad(() => {
   uni.getSystemInfo({
     success: (res: any) => {
@@ -140,7 +135,10 @@ onLoad(() => {
   })
 })
 
-const visitedShops = ref<Array<{ id: number | string; name: string; count: number; bg: string }>>([])
+onShow(() => {
+  tabStore.setActiveTab('/pages/order/list')
+  fetchOrders()
+})
 
 const statusTextMap: Record<number, string> = {
   0: '待付款',
@@ -195,6 +193,10 @@ function buildDisplayOrder(order: OrderVO) {
   const statusType = statusTypeMap[status] || 'default'
   const icon = status === 9 || status === 10 ? 'refund' : 'package'
 
+  // 获取商家logo和商品图片URL
+  const merchantLogo = isImageUrl(order.merchantLogo) ? order.merchantLogo : ''
+  const dishImage = firstItem?.dishImage && isImageUrl(firstItem.dishImage) ? firstItem.dishImage : ''
+
   const btns: { text: string; type: string }[] = []
   if (status === 0) {
     btns.push({ text: '取消订单', type: 'default' })
@@ -217,10 +219,12 @@ function buildDisplayOrder(order: OrderVO) {
   return {
     id: order.id,
     merchantName: order.merchantName || '未知商家',
+    merchantLogo,
     merchantBg: merchantBg(order.merchantId),
     statusText,
     statusType,
     dishName: itemNames,
+    dishImage,
     spec,
     count,
     amount: order.payAmount?.toFixed(2) || '0.00',
@@ -229,6 +233,14 @@ function buildDisplayOrder(order: OrderVO) {
     btns,
     raw: order
   }
+}
+
+/** 判断是否是有效的图片URL */
+function isImageUrl(url?: string): boolean {
+  if (!url) return false
+  const trimmed = url.trim()
+  if (!trimmed) return false
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/')
 }
 
 const displayOrders = computed(() => rawOrders.value.map(buildDisplayOrder))
@@ -251,37 +263,10 @@ async function fetchOrders() {
     if (status !== undefined) params.status = status
     const res = await getOrderPage(params)
     rawOrders.value = res.list || []
-    if (activeIdx.value === 0) {
-      await loadVisitedShops()
-    }
   } catch (e: any) {
     uni.showToast({ title: e?.message || '加载失败', icon: 'none' })
   } finally {
     loading.value = false
-  }
-}
-
-async function loadVisitedShops() {
-  try {
-    const res = await getOrderPage({ current: 1, size: 50 })
-    const orders = res.list || []
-    const map = new Map<number, { id: number; name: string; count: number }>()
-    orders.forEach((o: OrderVO) => {
-      if (!o.merchantId) return
-      const existing = map.get(o.merchantId)
-      if (existing) {
-        existing.count += 1
-      } else {
-        map.set(o.merchantId, { id: o.merchantId, name: o.merchantName || '未知商家', count: 1 })
-      }
-    })
-    visitedShops.value = Array.from(map.values()).slice(0, 10).map((s) => ({
-      ...s,
-      bg: merchantBg(s.id)
-    }))
-  } catch (e) {
-    console.error('加载买过的店失败', e)
-    visitedShops.value = []
   }
 }
 
@@ -430,64 +415,35 @@ function onBtnClick(order: any, btn: any) {
 }
 
 .orders-shops {
-  margin: 12px 16px 0;
-  padding: 14px 0 14px 14px;
-  background: $card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow;
+  display: none;
 }
 
 .orders-shops-title {
-  display: block;
-  font-size: 15px;
-  font-weight: 700;
-  color: $text;
-  margin-bottom: 12px;
+  display: none;
 }
 
 .orders-shops-scroll {
-  width: 100%;
+  display: none;
 }
 
 .orders-shops-list {
-  display: flex;
-  flex-direction: row;
+  display: none;
 }
 
 .orders-shop-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 72px;
-  margin-right: 14px;
-  flex-shrink: 0;
+  display: none;
 }
 
 .orders-shop-img {
-  width: 56px;
-  height: 56px;
-  border-radius: $radius-md;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  margin-bottom: 8px;
+  display: none;
 }
 
 .orders-shop-name {
-  font-size: 12px;
-  color: $text;
-  text-align: center;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: none;
 }
 
 .orders-shop-count {
-  font-size: 11px;
-  color: $text-muted;
-  margin-top: 2px;
+  display: none;
 }
 
 .orders-list {
@@ -516,16 +472,13 @@ function onBtnClick(order: any, btn: any) {
   min-width: 0;
 }
 
-.orders-merchant-img {
+.orders-merchant-img-wrap {
   width: 28px;
   height: 28px;
   border-radius: $radius-sm;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
   margin-right: 8px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .orders-merchant-name {
@@ -567,16 +520,13 @@ function onBtnClick(order: any, btn: any) {
   padding: 0 16px 14px;
 }
 
-.orders-dish-img {
+.orders-dish-img-wrap {
   width: 72px;
   height: 72px;
   border-radius: $radius-md;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
   margin-right: 12px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .orders-dish-info {

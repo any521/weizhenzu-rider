@@ -31,7 +31,7 @@ export interface PageResultBackend<T> {
 export interface LoginVO {
   token: string
   refreshToken: string
-  userId: number
+  userId: number | string
   nickname: string
   avatar?: string
   userType?: number
@@ -39,10 +39,14 @@ export interface LoginVO {
 
 /** 用户信息（前端展示用） */
 export interface UserVO {
-  id: number
+  id: number | string
   nickname: string
   phone?: string
+  email?: string
+  phoneBound?: boolean
   avatar?: string
+  gender?: number
+  birthday?: string
   vip?: string
   level?: string
   stats?: Record<string, number>
@@ -50,7 +54,7 @@ export interface UserVO {
 
 /** 收货地址（前端展示用） */
 export interface AddressVO {
-  id: number
+  id: number | string
   name: string
   phone: string
   region: string
@@ -61,7 +65,7 @@ export interface AddressVO {
 
 /** 收货地址请求 DTO（与后端 AddressDTO 保持一致） */
 export interface AddressDTO {
-  id?: number
+  id?: number | string
   contactName: string
   contactPhone: string
   province: string
@@ -76,7 +80,7 @@ export interface AddressDTO {
 
 /** 商家分类 */
 export interface MerchantCategoryVO {
-  id: number
+  id: number | string
   name: string
   icon?: string
   color?: string
@@ -93,7 +97,12 @@ export interface MerchantVO {
   id: number | string
   name: string
   logo?: string
-  categoryId?: number
+  /** 商家封面/头像图片URL（后端可能返回 coverUrl/cover/avatar/image 等字段） */
+  coverUrl?: string
+  cover?: string
+  avatar?: string
+  image?: string
+  categoryId?: number | string
   categoryName?: string
   description?: string
   notice?: string
@@ -118,6 +127,10 @@ export interface MerchantVO {
   perCapita?: number
   promos?: PromoItem[]
   categories?: DishCategoryVO[]
+  /** 是否支持外卖: 1=支持, 0=不支持 */
+  supportDelivery?: number
+  /** 是否支持自取: 1=支持, 0=不支持 */
+  supportPickup?: number
 }
 
 /** 前端商家卡片展示用 */
@@ -126,6 +139,8 @@ export interface MerchantCardVO {
   name: string
   logo: string
   bg: string
+  /** 商家图片URL（封面/头像），有值时优先显示图片 */
+  imageUrl?: string
   rating: number
   monthlySales: number
   minOrder: number
@@ -136,12 +151,16 @@ export interface MerchantCardVO {
   promo: string
   perCapita?: number
   top?: boolean
+  /** 是否支持外卖: 1=支持, 0=不支持 */
+  supportDelivery?: number
+  /** 是否支持自取: 1=支持, 0=不支持 */
+  supportPickup?: number
 }
 
 /** 菜品规格 */
 export interface DishSpecVO {
-  id: number
-  dishId: number
+  id: number | string
+  dishId: number | string
   name: string
   priceDiff: number
   stock: number
@@ -150,8 +169,8 @@ export interface DishSpecVO {
 
 /** 菜品信息 */
 export interface DishVO {
-  id: number
-  merchantId: number
+  id: number | string
+  merchantId: number | string
   name: string
   description?: string
   image?: string
@@ -171,8 +190,8 @@ export interface DishVO {
 
 /** 前端菜品卡片展示用 */
 export interface DishCardVO {
-  id: number
-  merchantId: number
+  id: number | string
+  merchantId: number | string
   name: string
   desc: string
   sales: number
@@ -181,13 +200,15 @@ export interface DishCardVO {
   originalPrice?: number
   tags: { type: string; text: string }[]
   bg: string
+  /** 菜品图片URL，有值时优先显示图片 */
+  imageUrl?: string
   qty: number
 }
 
 /** 菜品分类（含菜品列表） */
 export interface DishCategoryVO {
-  id: number
-  merchantId?: number
+  id: number | string
+  merchantId?: number | string
   name: string
   sort?: number
   status?: number
@@ -206,16 +227,18 @@ export interface RecommendDishVO {
   rating?: number
   reason?: string
   bg?: string
+  /** 菜品图片URL，有值时优先显示图片 */
+  imageUrl?: string
 }
 
 /** 购物车项 */
 export interface CartItemVO {
-  id: number
-  merchantId: number
-  dishId: number
+  id: number | string
+  merchantId: number | string
+  dishId: number | string
   dishName: string
   dishImage?: string
-  specId?: number
+  specId?: number | string
   specName?: string
   unitPrice: number
   quantity: number
@@ -224,7 +247,7 @@ export interface CartItemVO {
 
 /** 购物车 */
 export interface CartVO {
-  merchantId?: number
+  merchantId?: number | string
   merchantName?: string
   items: CartItemVO[]
   totalAmount: number
@@ -237,11 +260,11 @@ export interface CartVO {
 
 /** 订单项 */
 export interface OrderItemVO {
-  id?: number
-  dishId: number
+  id?: number | string
+  dishId: number | string
   dishName?: string
   dishImage?: string
-  specId?: number
+  specId?: number | string
   specName?: string
   price: number
   quantity: number
@@ -262,11 +285,13 @@ export interface OrderCreateVO {
 export interface OrderVO {
   id: number | string
   orderNo: string
-  merchantId?: number
+  merchantId?: number | string
   merchantName?: string
   merchantLogo?: string
   status: number
   statusDesc: string
+  payStatus?: number
+  payType?: number
   items: OrderItemVO[]
   goodsAmount?: number
   deliveryFee?: number
@@ -280,6 +305,7 @@ export interface OrderVO {
   deliverTime?: string
   receiveTime?: string
   cancelTime?: string
+  cancelReason?: string
   riderName?: string
   riderPhone?: string
   expectedTime?: string
@@ -288,10 +314,13 @@ export interface OrderVO {
 /** 支付信息 */
 export interface PaymentVO {
   paymentNo: string
+  orderId?: number | string
   payType: number
   payUrl?: string
+  paid?: boolean
+  thirdPartyNo?: string
   expireTime?: string
-  status?: string
+  status?: number
 }
 
 /** 退款详情 */
@@ -365,13 +394,13 @@ export interface CouponVO {
 
 /** 评价 */
 export interface ReviewVO {
-  id: number
-  userId?: number
+  id: number | string
+  userId?: number | string
   nickname?: string
   avatar?: string
-  orderId?: number
-  merchantId?: number
-  dishId?: number
+  orderId?: number | string
+  merchantId?: number | string
+  dishId?: number | string
   rating: number
   tasteScore?: number
   packingScore?: number
@@ -384,18 +413,30 @@ export interface ReviewVO {
   createdAt?: string
 }
 
-/** 通用业务错误码 */
+/** 通用业务错误码（与后端 ResultCode 保持一致） */
 export enum ErrorCode {
   SUCCESS = 200,
+  FAIL = 500,
+  PARAM_ERROR = 400,
 
   UNAUTHORIZED = 401,
   FORBIDDEN = 403,
   NOT_FOUND = 404,
-  INTERNAL_ERROR = 500,
+  METHOD_NOT_ALLOWED = 405,
 
-  PARAM_ERROR = 10001,
-  SMS_CODE_ERROR = 10002,
-  ACCOUNT_NOT_FOUND = 10003,
-  TOKEN_EXPIRED = 10004,
-  ACCOUNT_DISABLED = 10005,
+  // 用户业务 1xxxx
+  USER_NOT_FOUND = 10001,
+  USER_DISABLED = 10002,
+  PHONE_FORMAT_ERROR = 10003,
+  SMS_CODE_ERROR = 10004,
+  SMS_CODE_FREQUENT = 10005,
+
+  // 邮箱与手机号绑定业务
+  EMAIL_FORMAT_ERROR = 10006,
+  EMAIL_NOT_FOUND = 10007,
+  EMAIL_EXISTS = 10008,
+  PHONE_NOT_BOUND = 10009,
+  PHONE_ALREADY_BOUND = 10010,
+  EMAIL_SEND_FAIL = 10011,
+  ACCOUNT_AUDITING = 10012,
 }

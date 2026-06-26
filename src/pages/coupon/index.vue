@@ -19,10 +19,14 @@
 
     <!-- 卡券列表 -->
     <scroll-view scroll-y class="coupon-scroll" :style="{ height: scrollHeight + 'px' }">
-      <view v-if="!list.length" class="empty">
-        <CategoryIcon name="ticket-empty" :size="72" class="empty-icon" />
-        <text class="empty-text">暂无{{ statusLabel }}优惠券</text>
-        <view class="empty-btn" @tap="goHome">去领券</view>
+      <view v-if="!list.length" class="empty-wrap">
+        <AppEmpty 
+          icon="ticket-empty" 
+          :title="`暂无${statusLabel}优惠券`" 
+          btn-text="去领券" 
+          :icon-size="96"
+          @action="goHome" 
+        />
       </view>
 
       <view v-else class="coupon-list">
@@ -69,6 +73,7 @@ import { onShow } from '@dcloudio/uni-app'
 import { getMyCoupons } from '@/api'
 import { useTabStore } from '@/store/tab'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import AppEmpty from '@/components/AppEmpty/AppEmpty.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 
 const tabStore = useTabStore()
@@ -111,7 +116,16 @@ onMounted(() => {
 async function loadCoupons() {
   try {
     const res: any = await getMyCoupons()
-    coupons.value = (res?.list || res || []).map((c: any) => ({
+    // 兼容多种返回格式：{list: []}、{records: []}、直接数组
+    let list: any[] = []
+    if (Array.isArray(res)) {
+      list = res
+    } else if (Array.isArray(res?.list)) {
+      list = res.list
+    } else if (Array.isArray(res?.records)) {
+      list = res.records
+    }
+    coupons.value = list.map((c: any) => ({
       id: c.id,
       type: c.type === 2 ? 'discount' : 'amount',
       value: c.type === 2 ? (c.discount ? c.discount * 10 : 0) : (c.amount || 0),
@@ -202,35 +216,8 @@ function goHome() {
   background: $bg;
 }
 
-.empty {
-  text-align: center;
-  padding: 80px 0;
-  color: $text-muted;
-}
-
-.empty-icon {
-  display: flex;
-  justify-content: center;
-  color: $text-muted;
-  opacity: 0.45;
-  margin-bottom: 16px;
-}
-
-.empty-text {
-  display: block;
-  font-size: 14px;
-  margin-bottom: 16px;
-}
-
-.empty-btn {
-  display: inline-block;
-  background: linear-gradient(90deg, $primary, $primary-light);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 7px 22px;
-  border-radius: 18px;
-  box-shadow: 0 3px 8px rgba(255, 75, 51, 0.22);
+.empty-wrap {
+  padding-top: 100px;
 }
 
 .coupon-list {

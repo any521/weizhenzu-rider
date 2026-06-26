@@ -91,7 +91,7 @@ const images = ref<string[]>([])
 const tags = ref<string[]>(['味道赞', '分量足', '包装精美', '送货快', '态度好'])
 const merchant = ref<MerchantCardVO | null>(null)
 const orderId = ref<string | number>('')
-const merchantId = ref<number | undefined>(undefined)
+const merchantId = ref<number | string | undefined>(undefined)
 const submitting = ref(false)
 
 const ratingText = computed(() => {
@@ -102,12 +102,12 @@ const ratingText = computed(() => {
 onLoad((q: any) => {
   if (q?.id) orderId.value = q.id
   if (q?.merchantId) {
-    merchantId.value = Number(q.merchantId)
+    merchantId.value = q.merchantId
     fetchMerchant(merchantId.value)
   }
 })
 
-async function fetchMerchant(id: number) {
+async function fetchMerchant(id: number | string) {
   try {
     const res = await getMerchantDetail(id)
     merchant.value = merchantVoToCard(res as MerchantVO)

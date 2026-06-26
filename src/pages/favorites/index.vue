@@ -27,8 +27,19 @@
         class="favorite-card"
         @tap="goMerchant(item.id)"
       >
-        <view class="merchant-logo" :style="{ background: item.bg }">
-          <text class="logo-text">{{ item.logo }}</text>
+        <view class="merchant-logo-wrap">
+          <SmartImage
+            v-if="item.imageUrl"
+            :src="item.imageUrl"
+            :bg="item.bg"
+            icon="shop"
+            :iconSize="24"
+            radius="8px"
+            mode="aspectFill"
+          />
+          <view v-else class="merchant-logo" :style="{ background: item.bg }">
+            <text class="logo-text">{{ item.logo }}</text>
+          </view>
         </view>
         <view class="merchant-body">
           <view class="merchant-name">{{ item.name }}</view>
@@ -44,7 +55,7 @@
         </view>
         <view class="merchant-actions">
           <view class="action-like" :class="{ liked: item.liked }" @tap.stop="toggleLike(item)">
-            <CategoryIcon name="favorite" :size="22" />
+            <CategoryIcon :name="item.liked ? 'favorite-filled' : 'favorite'" :size="22" />
           </view>
           <view class="action-btn" @tap.stop="goMerchant(item.id)">去下单</view>
         </view>
@@ -56,6 +67,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import AppEmpty from '@/components/AppEmpty/AppEmpty.vue'
 import { getFavorites, addFavorite, removeFavorite } from '@/api'
 import type { MerchantCardVO } from '@/types/api'
@@ -121,8 +133,8 @@ function goMerchant(id: number | string) {
 }
 
 .navbar {
-  height: calc($status-bar-height + $navbar-height);
-  padding-top: $status-bar-height;
+  height: calc(var(--status-bar-height, 20px) + 44px);
+  padding-top: var(--status-bar-height, 20px);
   background: $card;
   display: flex;
   align-items: center;
@@ -198,6 +210,14 @@ function goMerchant(id: number | string) {
   border-radius: $radius-lg;
   padding: 14px;
   box-shadow: $shadow;
+}
+
+.merchant-logo-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: $radius-md;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-logo {

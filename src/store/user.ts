@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { smsLogin, passwordLogin, sendSmsCode, logout as apiLogout, getUserProfile } from '@/api'
+import {
+  smsLogin, passwordLogin, emailLogin,
+  sendSmsCode, sendEmailCode,
+  logout as apiLogout, getUserProfile
+} from '@/api'
 import { getToken, setToken, clearToken, getRefreshToken, setRefreshToken, clearRefreshToken } from '@/utils/request'
+import { wsService } from '@/utils/websocket'
 
 const USER_KEY = 'wzz_user_info'
 
@@ -14,6 +19,7 @@ export const useUserStore = defineStore('user', () => {
   const userId = computed(() => userInfo.value?.id)
   const nickname = computed(() => userInfo.value?.nickname || '游客')
   const avatar = computed(() => userInfo.value?.avatar || '')
+  const phoneBound = computed(() => !!userInfo.value?.phoneBound)
 
   function initFromStorage() {
     token.value = getToken()
@@ -23,23 +29,41 @@ export const useUserStore = defineStore('user', () => {
 
   async function loginBySms(phone: string, code: string) {
     const res = await smsLogin(phone, code)
-    token.value = res.token || ''
+    const t = res.token || ''
+    token.value = t
     refreshToken.value = res.refreshToken || ''
-    setToken(res.token || '')
+    setToken(t)
     setRefreshToken(res.refreshToken || '')
     // 登录成功后拉取完整资料
     const profile = await fetchProfile()
+    // 使用token直接连接WebSocket，避免storage写入时序问题
+    wsService.connectWithToken(t)
     return { ...res, ...profile }
   }
 
   async function loginByPassword(phone: string, password: string) {
     const res = await passwordLogin(phone, password)
-    token.value = res.token || ''
+    const t = res.token || ''
+    token.value = t
     refreshToken.value = res.refreshToken || ''
-    setToken(res.token || '')
+    setToken(t)
     setRefreshToken(res.refreshToken || '')
     // 登录成功后拉取完整资料
     const profile = await fetchProfile()
+    wsService.connectWithToken(t)
+    return { ...res, ...profile }
+  }
+
+  /** 邮箱 + 验证码登录 */
+  async function loginByEmail(email: string, code: string) {
+    const res = await emailLogin(email, code)
+    const t = res.token || ''
+    token.value = t
+    refreshToken.value = res.refreshToken || ''
+    setToken(t)
+    setRefreshToken(res.refreshToken || '')
+    const profile = await fetchProfile()
+    wsService.connectWithToken(t)
     return { ...res, ...profile }
   }
 
@@ -54,8 +78,17 @@ export const useUserStore = defineStore('user', () => {
     return sendSmsCode(phone, scene)
   }
 
+  /** 发送邮箱验证码 */
+  async function sendEmail(scene = 'LOGIN') {
+    const email = userInfo.value?.email
+    if (!email) throw new Error('当前账号无邮箱')
+    return sendEmailCode(email, scene)
+  }
+
   async function logout() {
     try { await apiLogout() } catch (e) { /* ignore */ }
+    // 断开WebSocket
+    wsService.disconnect()
     token.value = ''
     refreshToken.value = ''
     userInfo.value = null
@@ -65,7 +98,8 @@ export const useUserStore = defineStore('user', () => {
   }
 
   return {
-    token, refreshToken, userInfo, isLoggedIn, userId, nickname, avatar,
-    initFromStorage, loginBySms, loginByPassword, fetchProfile, sendCode, logout
+    token, refreshToken, userInfo, isLoggedIn, userId, nickname, avatar, phoneBound,
+    initFromStorage, loginBySms, loginByPassword, loginByEmail,
+    fetchProfile, sendCode, sendEmail, logout
   }
 })

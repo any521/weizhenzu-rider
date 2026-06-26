@@ -2,158 +2,184 @@
   <view class="edit">
     <view class="form-card">
       <view class="form-item">
-        <text class="label">收货人</text>
-        <input v-model="form.name" placeholder="请输入姓名" />
+        <text class="label">联系人</text>
+        <input v-model="form.name" placeholder="请输入联系人姓名" placeholder-class="placeholder" />
       </view>
       <view class="form-item">
         <text class="label">手机号</text>
-        <input v-model="form.phone" type="number" maxlength="11" placeholder="请输入手机号" />
+        <input v-model="form.phone" type="number" maxlength="11" placeholder="请输入手机号" placeholder-class="placeholder" />
       </view>
-      <view class="form-item" @tap="showRegionPicker = true">
-        <text class="label">省市区</text>
-        <text class="region-text" :class="{ placeholder: !form.region }">{{ form.region || '请选择省市区' }}</text>
-        <text class="arrow">›</text>
-      </view>
+      <!-- 省市区选择器：使用多列picker确保全平台兼容 -->
+      <picker
+        mode="multiSelector"
+        :value="multiIndex"
+        :range="multiColumns"
+        @change="onMultiChange"
+        @columnchange="onColumnChange"
+      >
+        <view class="form-item">
+          <text class="label">省市区</text>
+          <text class="region-text" :class="{ placeholder: !form.region }">{{ form.region || '请选择省/市/区' }}</text>
+          <text class="arrow">›</text>
+        </view>
+      </picker>
       <view class="form-item">
         <text class="label">详细地址</text>
-        <input v-model="form.address" placeholder="街道、门牌号等" />
-      </view>
-      <view class="form-item" @tap="goMap">
-        <text class="label">地图定位</text>
-        <text class="region-text" :class="{ placeholder: !mapLocation }">{{ mapLocation || '点击选择地图位置' }}</text>
-        <text class="arrow">›</text>
+        <input v-model="form.address" placeholder="街道、楼栋、门牌号等" placeholder-class="placeholder" />
       </view>
       <view class="form-item">
         <text class="label">地址标签</text>
         <view class="tag-group">
-          <text v-for="t in tagOptions" :key="t" :class="['tag', form.tag === t && 'tag-active']" @tap="form.tag = t">{{ t }}</text>
+          <text
+            v-for="t in tagOptions"
+            :key="t"
+            :class="['tag', form.tag === t && 'tag-active']"
+            @tap="form.tag = t"
+          >{{ t }}</text>
         </view>
       </view>
-      <view class="form-item" @tap="form.default = !form.default">
-        <text class="label">设为默认</text>
+      <view class="form-item switch-item" @tap="form.default = !form.default">
+        <text class="label">设为默认地址</text>
         <switch :checked="form.default" @change="onDefaultChange" color="#FF6B35" />
       </view>
     </view>
-    <view class="save-btn" @tap="onSave">保存地址</view>
-
-    <!-- 省市区选择弹窗 -->
-    <view v-if="showRegionPicker" class="popup-mask" @tap="showRegionPicker = false">
-      <view class="popup-content" @tap.stop>
-        <view class="popup-header">
-          <text class="popup-title">选择省市区</text>
-          <text class="popup-close" @tap="showRegionPicker = false">×</text>
-        </view>
-        <picker-view class="region-picker" :value="regionIndex" @change="onRegionChange">
-          <picker-view-column>
-            <view v-for="p in regionList" :key="p.name" class="picker-item">{{ p.name }}</view>
-          </picker-view-column>
-          <picker-view-column>
-            <view v-for="c in cityList" :key="c.name" class="picker-item">{{ c.name }}</view>
-          </picker-view-column>
-          <picker-view-column>
-            <view v-for="d in districtList" :key="d" class="picker-item">{{ d }}</view>
-          </picker-view-column>
-        </picker-view>
-        <view class="popup-btn" @tap="confirmRegion">确定</view>
-      </view>
+    <view :class="['save-btn', saving && 'save-disabled']" @tap="onSave">
+      {{ saving ? '保存中...' : '保存地址' }}
     </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { reactive, ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { getAddressDetail, addAddress, updateAddress } from '@/api'
+import { getRegionColumns } from '@/data/regions.js'
 import type { AddressVO } from '@/types/api'
 
-interface RegionNode {
-  name: string
-  children?: RegionNode[]
-  districts?: string[]
-}
-
-const form = reactive<Partial<AddressVO>>({ id: undefined, name: '', phone: '', region: '', address: '', tag: '家', default: false })
-const tagOptions = ['家', '公司', '学校', '其他']
-const showRegionPicker = ref(false)
-const regionIndex = ref([0, 0, 0])
-const mapLocation = ref('')
-const loading = ref(false)
-
-const regionList = ref<RegionNode[]>([])
-
-const cityList = computed(() => regionList.value[regionIndex.value[0]]?.children || [])
-const districtList = computed(() => {
-  const city = cityList.value[regionIndex.value[1]]
-  return city?.districts || []
+const form = reactive<Partial<AddressVO>>({
+  id: undefined,
+  name: '',
+  phone: '',
+  region: '',
+  address: '',
+  tag: '家',
+  default: false,
 })
+const tagOptions = ['家', '公司', '学校', '其他']
+const saving = ref(false)
+const editId = ref<number | string | null>(null)
+
+// 多列选择器索引：[省, 市, 区]
+const multiIndex = ref<[number, number, number]>([0, 0, 0])
+// 多列选择器数据
+const multiColumns = ref<string[][]>(getRegionColumns(0, 0))
+
+/**
+ * 根据已选region字符串初始化多列选择器索引
+ */
+function initMultiIndexFromRegion(region: string) {
+  if (!region) {
+    multiIndex.value = [0, 0, 0]
+    multiColumns.value = getRegionColumns(0, 0)
+    return
+  }
+  const parts = region.split(/\s+/)
+  const [provinceName, cityName, districtName] = parts
+
+  const provinces = multiColumns.value[0]
+  const pIdx = Math.max(0, provinces.indexOf(provinceName))
+  const cities = getRegionColumns(pIdx, 0)[1]
+  const cIdx = Math.max(0, cities.indexOf(cityName))
+  const districts = getRegionColumns(pIdx, cIdx)[2]
+  const dIdx = Math.max(0, districts.indexOf(districtName))
+
+  multiIndex.value = [pIdx, cIdx, dIdx]
+  multiColumns.value = [provinces, cities, districts]
+}
 
 onLoad((q: any) => {
   if (q?.id) {
-    loadDetail(Number(q.id))
-  }
-  const poi = uni.getStorageSync('wzz_map_selected_poi')
-  if (poi?.name) {
-    mapLocation.value = poi.name
-    if (!form.address && poi.address) form.address = poi.address
+    editId.value = q.id
+    loadDetail(editId.value)
   }
 })
 
-async function loadDetail(id: number) {
-  loading.value = true
+async function loadDetail(id: number | string) {
   try {
+    uni.showLoading({ title: '加载中...' })
     const detail = await getAddressDetail(id)
     Object.assign(form, detail)
+    if (detail.region) {
+      initMultiIndexFromRegion(detail.region)
+    }
   } catch (e) {
     console.error('加载地址详情失败', e)
   } finally {
-    loading.value = false
+    uni.hideLoading()
   }
 }
 
-onShow(() => {
-  const poi = uni.getStorageSync('wzz_map_selected_poi')
-  if (poi?.name) {
-    mapLocation.value = poi.name
-    if (!form.address && poi.address) form.address = poi.address
-  }
-})
+function onColumnChange(e: any) {
+  const { column, value } = e.detail
+  const idx = [...multiIndex.value] as [number, number, number]
 
-function onRegionChange(e: any) {
-  const val = e.detail.value || [0, 0, 0]
-  regionIndex.value = val
+  if (column === 0) {
+    // 省变化 -> 更新市和区
+    idx[0] = value
+    idx[1] = 0
+    idx[2] = 0
+    const newColumns = getRegionColumns(idx[0], 0)
+    multiColumns.value = newColumns
+  } else if (column === 1) {
+    // 市变化 -> 更新区
+    idx[1] = value
+    idx[2] = 0
+    const newColumns = getRegionColumns(idx[0], idx[1])
+    multiColumns.value = newColumns
+  } else if (column === 2) {
+    idx[2] = value
+  }
+  multiIndex.value = idx
 }
 
-function confirmRegion() {
-  const p = regionList.value[regionIndex.value[0]]?.name || ''
-  const c = cityList.value[regionIndex.value[1]]?.name || ''
-  const d = districtList.value[regionIndex.value[2]] || ''
-  form.region = [p, c, d].filter(Boolean).join(' ')
-  showRegionPicker.value = false
+function onMultiChange(e: any) {
+  const value = e.detail.value as [number, number, number]
+  const provinces = multiColumns.value[0]
+  const cities = multiColumns.value[1]
+  const districts = multiColumns.value[2]
+
+  const province = provinces[value[0]] || ''
+  const city = cities[value[1]] || ''
+  const district = districts[value[2]] || ''
+
+  form.region = [province, city, district].filter(Boolean).join(' ')
+  multiIndex.value = value
 }
 
 function onDefaultChange(e: any) {
   form.default = !!e.detail.value
 }
 
-function goMap() {
-  uni.navigateTo({ url: '/pages/address/map?from=edit' })
-}
-
 async function onSave() {
-  if (!form.name || !form.phone || !form.address || !form.region) {
-    return uni.showToast({ title: '请填写完整', icon: 'none' })
-  }
+  if (saving.value) return
+  if (!form.name?.trim()) return uni.showToast({ title: '请输入联系人', icon: 'none' })
+  if (!/^1[3-9]\d{9}$/.test(form.phone || '')) return uni.showToast({ title: '请输入正确的手机号', icon: 'none' })
+  if (!form.region) return uni.showToast({ title: '请选择省市区', icon: 'none' })
+  if (!form.address?.trim()) return uni.showToast({ title: '请输入详细地址', icon: 'none' })
+
+  saving.value = true
   try {
-    if (form.id) {
-      await updateAddress(form.id, form)
+    if (editId.value) {
+      await updateAddress(editId.value, form)
     } else {
       await addAddress(form)
     }
-    uni.showToast({ title: '已保存', icon: 'success' })
-    uni.removeStorageSync('wzz_map_selected_poi')
+    uni.showToast({ title: '保存成功', icon: 'success' })
     setTimeout(() => uni.navigateBack(), 600)
   } catch (e) {
     console.error('保存地址失败', e)
+  } finally {
+    saving.value = false
   }
 }
 </script>
@@ -161,80 +187,106 @@ async function onSave() {
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
-.edit { min-height: 100vh; background: $bg; padding: 12px 16px; }
-.form-card { background: #fff; border-radius: $radius-md; overflow: hidden; }
-.form-item { display: flex; align-items: center; padding: 14px 16px; border-bottom: 1px solid $border; min-height: 56px;
-  .label { width: 80px; color: $text; font-size: 14px; }
-  input { flex: 1; font-size: 14px; }
-  .tag-group { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; .tag { padding: 4px 14px; border: 1px solid $border; border-radius: 14px; font-size: 12px; color: $text-light; } .tag-active { background: rgba(255, 107, 53, 0.1); border-color: $primary; color: $primary; } }
+.edit {
+  min-height: 100vh;
+  background: $bg;
+  padding: calc(var(--status-bar-height, 20px) + 44px + 12px) 16px 24px;
 }
+
+.form-card {
+  background: #fff;
+  border-radius: $radius-md;
+  overflow: hidden;
+  box-shadow: $shadow;
+}
+
+.form-item {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid $border;
+  min-height: 56px;
+}
+
+.form-item:last-child {
+  border-bottom: none;
+}
+
+.label {
+  width: 90px;
+  color: $text;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+input {
+  flex: 1;
+  font-size: 14px;
+  color: $text;
+}
+
+.placeholder {
+  color: $text-muted;
+}
+
 .region-text {
   flex: 1;
   font-size: 14px;
   color: $text;
 }
+
 .region-text.placeholder {
   color: $text-muted;
 }
+
 .arrow {
-  font-size: 16px;
+  font-size: 18px;
   color: $text-muted;
   margin-left: 8px;
 }
-.save-btn { margin-top: 24px; height: 50px; line-height: 50px; text-align: center; background: linear-gradient(135deg, $primary, $primary-light); color: #fff; border-radius: 25px; font-size: 16px; font-weight: 600; }
 
-.popup-mask {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 100;
+.tag-group {
   display: flex;
-  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
 }
-.popup-content {
-  background: #fff;
-  width: 100%;
-  border-radius: $radius-lg $radius-lg 0 0;
-  padding: 16px;
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+
+.tag {
+  padding: 6px 16px;
+  border: 1px solid $border;
+  border-radius: 16px;
+  font-size: 13px;
+  color: $text-light;
+  background: $bg;
 }
-.popup-header {
-  display: flex;
-  align-items: center;
+
+.tag-active {
+  background: rgba(255, 107, 53, 0.1);
+  border-color: $primary;
+  color: $primary;
+  font-weight: 500;
+}
+
+.switch-item {
   justify-content: space-between;
-  margin-bottom: 12px;
 }
-.popup-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: $text;
-}
-.popup-close {
-  font-size: 24px;
-  color: $text-muted;
-  padding: 0 4px;
-}
-.region-picker {
-  height: 220px;
-  margin-bottom: 16px;
-}
-.picker-item {
-  line-height: 44px;
-  text-align: center;
-  font-size: 14px;
-  color: $text;
-}
-.popup-btn {
-  height: 46px;
-  line-height: 46px;
+
+.save-btn {
+  margin-top: 32px;
+  height: 50px;
+  line-height: 50px;
   text-align: center;
   background: linear-gradient(135deg, $primary, $primary-light);
   color: #fff;
-  border-radius: 23px;
-  font-size: 15px;
+  border-radius: 25px;
+  font-size: 16px;
   font-weight: 600;
+  box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+}
+
+.save-disabled {
+  opacity: 0.6;
+  pointer-events: none;
 }
 </style>

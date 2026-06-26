@@ -6,6 +6,7 @@
     viewBox="0 0 48 48"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
+    :style="{ color: color }"
   >
     <component :is="node" v-for="(node, i) in nodes" :key="i" />
   </svg>
@@ -14,12 +15,16 @@
 <script setup lang="ts">
 import { computed, h } from 'vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   name: string
   size?: number | string
-}>()
+  color?: string
+}>(), {
+  size: 28,
+  color: '',
+})
 
-const size = computed(() => props.size || 28)
+const size = computed(() => props.size)
 
 // 图标采用 iconfont 风格的线性 SVG，可整体替换为 iconfont Symbol/use
 const icons: Record<string, string> = {
@@ -56,6 +61,7 @@ const icons: Record<string, string> = {
   // 我的菜单
   'coupon-card': `<path d="M8 12h32v8a4 4 0 0 0 0 8 4 4 0 0 0 0 8v4H8V12Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M16 20h16M16 28h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
   favorite: `<path d="M24 42S8 32 8 20a10 10 0 0 1 16-8 10 10 0 0 1 16 8c0 12-16 22-16 22Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  'favorite-filled': `<path d="M24 42S8 32 8 20a10 10 0 0 1 16-8 10 10 0 0 1 16 8c0 12-16 22-16 22Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
   address: `<path d="M24 8c6 0 10 4 10 10 0 6-4 10-10 18-6-8-10-12-10-18 0-6 4-10 10-10Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="18" r="2.5" stroke="currentColor" stroke-width="2.5"/>`,
   invite: `<path d="M8 14h32v22a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V14Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M8 10h32v4H8v-4Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 22v12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 28h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
   service: `<path d="M16 14a8 8 0 0 1 16 0v8h4v-8a12 12 0 0 0-24 0v8h4v-8Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M20 30h8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
@@ -87,9 +93,36 @@ const icons: Record<string, string> = {
   star: `<path d="M24 6l5.5 11h11l-9 8.5L35 36 24 30 13 36l3.5-10.5-9-8.5h11L24 6Z" fill="currentColor"/>`,
   check: `<circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5"/><path d="M16 24l6 6 10-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
   close: `<circle cx="24" cy="24" r="18" stroke="currentColor" stroke-width="2.5"/><path d="M17 17l14 14M31 17L17 31" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
-  'ticket-empty': `<path d="M10 10h28v10a4 4 0 0 1 0 8 4 4 0 0 1 0 8v2H10V10Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="24" r="5" stroke="currentColor" stroke-width="2.5"/><path d="M14 18h6M14 30h6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  'ticket-empty': `<path d="M6 10h36v10a4 4 0 0 1 0 8 4 4 0 0 1 0 8v2H6V10Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="24" r="5" stroke="currentColor" stroke-width="2.5"/><path d="M12 18h6M12 30h6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
   user: `<circle cx="24" cy="16" r="6" stroke="currentColor" stroke-width="2.5"/><path d="M12 38c2-6 7-10 12-10s10 4 12 10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
   camera: `<rect x="8" y="12" width="32" height="24" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="24" r="7" stroke="currentColor" stroke-width="2.5"/><circle cx="36" cy="18" r="2" fill="currentColor"/>`,
+
+  // 补充图标（替换emoji）
+  phone: `<rect x="10" y="6" width="28" height="36" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="36" r="2" fill="currentColor"/>`,
+  bell: `<path d="M12 32h24l-2-4V18a10 10 0 0 0-20 0v10l-2 4Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M20 36a4 4 0 0 0 8 0" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  envelope: `<rect x="6" y="10" width="36" height="28" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M6 14l18 12L42 14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+  megaphone: `<path d="M8 18v12l18 6V12L8 18Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M32 14v20a4 4 0 0 0 8 0V18a4 4 0 0 0-8-4Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  plate: `<circle cx="24" cy="26" r="14" stroke="currentColor" stroke-width="2.5"/><path d="M16 18l10 10M26 18l-10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  'heart-filled': `<path d="M24 42S8 32 8 20a10 10 0 0 1 16-8 10 10 0 0 1 16 8c0 12-16 22-16 22Z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  'heart-empty': `<path d="M24 42S8 32 8 20a10 10 0 0 1 16-8 10 10 0 0 1 16 8c0 12-16 22-16 22Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  wallet: `<rect x="6" y="14" width="36" height="26" rx="3" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M6 20h36" stroke="currentColor" stroke-width="2.5"/><circle cx="34" cy="30" r="3" fill="currentColor"/>`,
+  'arrow-right': `<path d="M18 12l12 12-12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+
+  // 补充分类图标（用于没有3D图片的分类）
+  food: `<path d="M14 8v32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M34 8v32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M8 40h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 12c0-2 3-4 6-4s6 2 6 4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  pepper: `<path d="M28 10c-2-2-6-2-8 0-6 6-6 18 0 24 4 4 10 4 14 0 2-2 2-6 0-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M26 10c2-4 6-4 8-2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  pizza: `<path d="M8 36l32-20-12-8L8 36Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="20" cy="24" r="2" fill="currentColor"/><circle cx="26" cy="20" r="1.5" fill="currentColor"/><circle cx="24" cy="28" r="1.5" fill="currentColor"/>`,
+  seafood: `<path d="M12 24c4-8 10-12 16-12 6 0 10 6 8 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 24c4 8 10 12 16 12 6 0 10-6 8-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M36 24h6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  apple: `<path d="M24 10c4-6 10-4 10 4 0 8-6 14-10 18-4-4-10-10-10-18 0-8 6-10 10-4Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 10v-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  medical: `<rect x="12" y="12" width="24" height="24" rx="4" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 18v12M18 24h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  icecream: `<path d="M18 20h12l-6 16-6-16Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><circle cx="24" cy="16" r="8" stroke="currentColor" stroke-width="2.5"/>`,
+  vegetable: `<path d="M20 10c0-4 4-6 4-6s4 2 4 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M18 14c0-2 3-4 6-4s6 2 6 4l-4 22c-2 4-6 4-8 0l-4-22Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  gift: `<rect x="8" y="16" width="32" height="24" rx="2" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M8 24h32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M24 16v24" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M24 16c-4-6-12-4-8 2M24 16c4-6 12-4 8 2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`,
+  baby: `<circle cx="24" cy="18" r="10" stroke="currentColor" stroke-width="2.5"/><circle cx="20" cy="16" r="1.5" fill="currentColor"/><circle cx="28" cy="16" r="1.5" fill="currentColor"/><path d="M20 22c2 2 6 2 8 0" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
+  paw: `<circle cx="14" cy="18" r="4" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="12" r="4" stroke="currentColor" stroke-width="2"/><circle cx="34" cy="18" r="4" stroke="currentColor" stroke-width="2"/><path d="M16 30c0-6 4-8 8-8s8 2 8 8c0 4-4 6-8 6s-8-2-8-6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>`,
+  book: `<path d="M10 8v32" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M10 8c4-2 10-2 14 2 4-4 10-4 14-2v32c-4-2-10-2-14 2-4-4-10-4-14-2V8Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>`,
+  beauty: `<path d="M20 6h8v28c0 4-4 6-4 6s-4-2-4-6V6Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M18 10h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
+  run: `<circle cx="32" cy="12" r="4" stroke="currentColor" stroke-width="2.5"/><path d="M16 38c0-4 4-8 8-8h4l4-8-6-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M24 22l6 6" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`,
 }
 
 const path = computed(() => icons[props.name] || icons.more)

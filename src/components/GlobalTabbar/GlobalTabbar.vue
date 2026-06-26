@@ -14,10 +14,16 @@
         <text class="tab-text">{{ tab.text }}</text>
       </view>
 
-      <view class="tab-center" @tap="onCenterTap">
+      <!-- 中间购物车按钮（凸起） -->
+      <view class="tab-center" :class="{ active: tabStore.activeTab === centerTab.pagePath }" @tap="switchTab(centerTab)">
         <view class="center-btn">
-          <text class="center-main">100元</text>
-          <text class="center-sub">连续下单</text>
+          <view class="center-icon">
+            <CategoryIcon name="cart" :size="26" />
+            <view v-if="cartStore.totalCount > 0" class="cart-badge">
+              {{ cartStore.totalCount > 99 ? '99+' : cartStore.totalCount }}
+            </view>
+          </view>
+          <text class="center-text">购物车</text>
         </view>
       </view>
 
@@ -41,20 +47,24 @@
 import { computed } from 'vue'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import { useTabStore } from '@/store/tab'
+import { useCartStore } from '@/store/cart'
 
 const tabStore = useTabStore()
+const cartStore = useCartStore()
 
 const leftTabs = [
   { pagePath: '/pages/index/index', text: '外卖', iconName: 'home' },
   { pagePath: '/pages/coupon/index', text: '神券', iconName: 'ticket' }
 ]
 
+const centerTab = { pagePath: '/pages/cart/index', text: '购物车', iconName: 'cart' }
+
 const rightTabs = [
   { pagePath: '/pages/order/list', text: '订单', iconName: 'order' },
   { pagePath: '/pages/profile/index', text: '我的', iconName: 'profile' }
 ]
 
-const tabPaths = new Set([...leftTabs, ...rightTabs].map(t => t.pagePath))
+const tabPaths = new Set([...leftTabs, centerTab, ...rightTabs].map(t => t.pagePath))
 
 const visible = computed(() => tabPaths.has(tabStore.activeTab))
 
@@ -62,10 +72,6 @@ function switchTab(tab: any) {
   if (tabStore.activeTab === tab.pagePath) return
   tabStore.setActiveTab(tab.pagePath)
   uni.switchTab({ url: tab.pagePath })
-}
-
-function onCenterTap() {
-  uni.showToast({ title: '连续下单活动', icon: 'none' })
 }
 </script>
 
@@ -129,40 +135,70 @@ function onCenterTap() {
 
 .tab-center {
   width: 80px;
-  height: 80px;
+  height: 70px;
   position: absolute;
   left: 50%;
-  bottom: 8px;
+  bottom: 0;
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
+  padding-bottom: 4px;
 }
 
 .center-btn {
-  width: 64px;
-  height: 64px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
-  background: linear-gradient(180deg, $header-start 0%, $header-end 100%);
-  box-shadow: 0 4px 14px rgba(229, 57, 53, 0.45);
+  background: linear-gradient(135deg, $primary 0%, #FF8C42 100%);
+  box-shadow: 0 4px 14px rgba(255, 107, 53, 0.4);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: $primary-text;
-  border: 4px solid #fff;
+  color: #fff;
+  border: 3px solid #fff;
+  position: relative;
+  transition: transform 0.2s ease;
 }
 
-.center-main {
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.1;
+.tab-center.active .center-btn {
+  transform: scale(1.05);
 }
 
-.center-sub {
+.center-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.cart-badge {
+  position: absolute;
+  top: -10px;
+  right: -12px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+  box-sizing: border-box;
+  line-height: 1;
+}
+
+.center-text {
   font-size: 9px;
   font-weight: 600;
-  transform: scale(0.9);
+  margin-top: 1px;
+  line-height: 1;
 }
 </style>

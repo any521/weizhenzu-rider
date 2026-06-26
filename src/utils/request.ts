@@ -128,6 +128,20 @@ function doRefresh(): Promise<string> {
 }
 
 /**
+ * 请求去重：对于 POST/PUT/DELETE 请求，如果短时间内有相同请求（URL+data相同），直接返回 pending 的 Promise
+ * 防止 uni.request 在 H5 平台或网络层重复发送请求
+ */
+const pendingDuplicateMap = new Map<string, Promise<any>>()
+
+function getRequestFingerprint(url: string, method: string, data: any): string {
+  try {
+    return `${method}:${url}:${typeof data === 'string' ? data : JSON.stringify(data || {})}`
+  } catch {
+    return `${method}:${url}:${Date.now()}`
+  }
+}
+
+/**
  * 核心请求方法
  */
 export function request<T = any>(options: ApiOptions): Promise<T> {
@@ -148,7 +162,22 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
   const fullUrl = url.startsWith('http') ? url : BASE_URL + url
   const traceId = generateTraceId()
 
-  return new Promise<T>((resolve, reject) => {
+  // 对于写操作（POST/PUT/DELETE），进行请求去重
+  const upperMethod = method.toUpperCase()
+  const fingerprint = upperMethod !== 'GET' && !_retry
+    ? getRequestFingerprint(fullUrl, upperMethod, data)
+    : null
+
+  if (fingerprint) {
+    const existing = pendingDuplicateMap.get(fingerprint)
+    if (existing) {
+      // 已有相同请求在进行中，直接返回该 Promise（不重复发送请求）
+      if (showLoading) uni.hideLoading()
+      return existing as Promise<T>
+    }
+  }
+
+  const requestPromise = new Promise<T>((resolve, reject) => {
     const task = uni.request({
       url: fullUrl,
       method,
@@ -173,15 +202,14 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
         }
 
         // 账号被禁用：直接登出，不进行 token 刷新
-        if (body.code === ErrorCode.ACCOUNT_DISABLED) {
+        if (body.code === ErrorCode.USER_DISABLED) {
           clearAuthAndGoLogin('账号已被禁用，请联系客服')
           reject(body)
           return
         }
 
         // 认证失效：刷新 token 并重试（仅允许重试一次，防止死循环）
-        const isAuthError =
-          status === 401 || body.code === ErrorCode.UNAUTHORIZED || body.code === ErrorCode.TOKEN_EXPIRED
+        const isAuthError = status === 401 || body.code === ErrorCode.UNAUTHORIZED
 
         if (isAuthError) {
           if (_retry) {
@@ -236,6 +264,17 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
 
     pendingRequests.set(id, { task, reject })
   })
+
+  // 注册去重 Promise 并在完成后清理
+  if (fingerprint) {
+    pendingDuplicateMap.set(fingerprint, requestPromise)
+    // 无论成功或失败，都清理去重 Map
+    requestPromise.finally(() => {
+      pendingDuplicateMap.delete(fingerprint)
+    })
+  }
+
+  return requestPromise
 }
 
 /**

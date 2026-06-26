@@ -33,8 +33,19 @@
           class="merchant-card"
           @tap="goDetail(m.id)"
         >
-          <view class="merchant-img" :style="{ background: m.bg }">
-            <text class="logo-text">{{ m.logo }}</text>
+          <view class="merchant-img-wrap">
+            <SmartImage
+              v-if="m.imageUrl"
+              :src="m.imageUrl"
+              :bg="m.bg"
+              icon="shop"
+              :iconSize="28"
+              radius="8px"
+              mode="aspectFill"
+            />
+            <view v-else class="merchant-img" :style="{ background: m.bg }">
+              <text class="logo-text">{{ m.logo }}</text>
+            </view>
           </view>
           <view class="merchant-info">
             <view class="merchant-name-row">
@@ -61,6 +72,9 @@
             </view>
             <view v-if="m.promo" class="merchant-promo">{{ m.promo }}</view>
           </view>
+          <view class="fav-btn" :class="{ 'fav-active': favoriteIds.has(String(m.id)) }" @tap.stop="toggleFavorite(m)">
+            <CategoryIcon :name="favoriteIds.has(String(m.id)) ? 'favorite-filled' : 'favorite'" :size="20" />
+          </view>
         </view>
       </view>
 
@@ -71,12 +85,15 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
-import { getMerchantPage } from '@/api'
+import { onLoad, onShow } from '@dcloudio/uni-app'
+import { getMerchantPage, addFavorite, removeFavorite, getFavorites } from '@/api'
+import { useUserStore } from '@/store/user'
 import type { MerchantCardVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import AppEmpty from '@/components/AppEmpty/AppEmpty.vue'
 
+const userStore = useUserStore()
 const chips = [
   { label: '综合排序', value: '' },
   { label: '销量优先', value: 'sales' },
@@ -87,11 +104,12 @@ const activeChip = ref(0)
 const list = ref<MerchantCardVO[]>([])
 const loading = ref(false)
 const contentHeight = ref(600)
-const categoryId = ref<number>()
+const categoryId = ref<number | string | undefined>()
 const keyword = ref('')
+const favoriteIds = ref<Set<string>>(new Set())
 
 onLoad((q: any) => {
-  categoryId.value = q?.categoryId ? Number(q.categoryId) : undefined
+  categoryId.value = q?.categoryId ? q.categoryId : undefined
   keyword.value = q?.keyword ? decodeURIComponent(q.keyword) : ''
   uni.setNavigationBarTitle({
     title: q?.name || (keyword.value ? '搜索结果' : '商家列表'),
@@ -102,6 +120,11 @@ onLoad((q: any) => {
     },
   })
   load()
+  loadFavorites()
+})
+
+onShow(() => {
+  loadFavorites()
 })
 
 async function load() {
@@ -116,6 +139,46 @@ async function load() {
     console.error('加载商家列表失败', e)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadFavorites() {
+  if (!userStore.isLoggedIn) {
+    favoriteIds.value = new Set()
+    return
+  }
+  try {
+    const page = await getFavorites({ current: 1, size: 100 })
+    const ids = new Set<string>()
+    ;(page.list || []).forEach((m) => ids.add(String(m.id)))
+    favoriteIds.value = ids
+  } catch (e) {
+    console.error('加载收藏状态失败', e)
+  }
+}
+
+async function toggleFavorite(m: MerchantCardVO) {
+  if (!userStore.isLoggedIn) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  const id = String(m.id)
+  const isFav = favoriteIds.value.has(id)
+  try {
+    if (isFav) {
+      await removeFavorite(m.id)
+      favoriteIds.value.delete(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已取消收藏', icon: 'none' })
+    } else {
+      await addFavorite(m.id)
+      favoriteIds.value.add(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已收藏', icon: 'success' })
+    }
+  } catch (e) {
+    console.error('收藏操作失败', e)
   }
 }
 
@@ -208,10 +271,38 @@ function goDetail(id: number | string) {
   gap: 12px;
   padding: 14px 0;
   border-bottom: 1px solid $border;
+  position: relative;
 }
 
 .merchant-card:last-child {
   border-bottom: none;
+}
+
+.fav-btn {
+  position: absolute;
+  top: 14px;
+  right: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-muted;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.fav-btn.fav-active {
+  color: $danger;
+  opacity: 1;
+}
+
+.merchant-img-wrap {
+  width: 76px;
+  height: 76px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-img {
@@ -234,6 +325,7 @@ function goDetail(id: number | string) {
 .merchant-info {
   flex: 1;
   min-width: 0;
+  padding-right: 36px;
 }
 
 .merchant-name-row {

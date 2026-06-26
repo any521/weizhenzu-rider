@@ -2,11 +2,32 @@
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
 import { useTabStore } from '@/store/tab'
+import { wsService } from '@/utils/websocket'
 
 onLaunch(() => {
   console.log('App Launch - 味真足')
   // 启动时尝试恢复登录态
-  useUserStore().initFromStorage()
+  const userStore = useUserStore()
+  userStore.initFromStorage()
+
+  // 登录后连接WebSocket
+  if (userStore.isLoggedIn) {
+    setTimeout(() => wsService.connect(), 500)
+  }
+
+  // 设置状态栏高度 CSS 变量（H5 下 uni-app 不会自动注入）
+  try {
+    const sysInfo = uni.getSystemInfoSync()
+    const statusBarHeight = sysInfo.statusBarHeight || 20
+    // #ifdef H5
+    document.documentElement.style.setProperty('--status-bar-height', statusBarHeight + 'px')
+    // #endif
+    // #ifndef H5
+    // 小程序/App 端 uni-app 会自动注入 --status-bar-height，这里确保有 fallback
+    // #endif
+  } catch (e) {
+    console.warn('获取系统信息失败', e)
+  }
 })
 
 onShow(() => {
@@ -14,10 +35,17 @@ onShow(() => {
   const pages = getCurrentPages()
   const route = pages.length ? `/${pages[pages.length - 1].route}` : '/pages/index/index'
   useTabStore().setActiveTab(route)
+
+  // App从后台切回前台时，检查WebSocket连接
+  const userStore = useUserStore()
+  if (userStore.isLoggedIn && !wsService.isConnected()) {
+    wsService.connect()
+  }
 })
 
 onHide(() => {
   console.log('App Hide')
+  // App切后台不断开WebSocket，保持消息接收
 })
 </script>
 

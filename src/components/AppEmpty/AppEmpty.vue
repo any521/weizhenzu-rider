@@ -68,11 +68,12 @@ function onAction() {
 
 .empty-btn {
   margin-top: 20px;
-  background: $primary;
-  color: $text;
+  background: linear-gradient(90deg, $primary, $primary-light);
+  color: #fff;
   font-size: 14px;
   font-weight: 600;
   padding: 10px 28px;
-  border-radius: 20px;
+  border-radius: 24px;
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
 }
 </style>

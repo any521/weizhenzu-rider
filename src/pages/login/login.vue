@@ -8,25 +8,25 @@
 
     <view class="login-card">
       <view class="tabs">
-        <view :class="['tab', mode === 'sms' && 'tab-active']" @tap="mode = 'sms'">验证码登录</view>
+        <view :class="['tab', mode === 'email' && 'tab-active']" @tap="mode = 'email'">邮箱登录</view>
         <view :class="['tab', mode === 'pwd' && 'tab-active']" @tap="mode = 'pwd'">密码登录</view>
       </view>
 
-      <!-- 短信登录 -->
-      <view v-if="mode === 'sms'" class="form">
+      <!-- 邮箱验证码登录 -->
+      <view v-if="mode === 'email'" class="form">
         <view class="form-item">
-          <text class="form-label">手机号</text>
-          <input v-model="phone" class="form-input" type="number" maxlength="11" placeholder="请输入手机号" />
+          <text class="form-label">邮箱</text>
+          <input v-model="email" class="form-input" type="text" maxlength="64" placeholder="请输入邮箱地址" />
         </view>
         <view class="form-item">
           <text class="form-label">验证码</text>
-          <input v-model="code" class="form-input" type="number" maxlength="6" placeholder="请输入验证码" />
-          <view :class="['sms-btn', countdown > 0 && 'sms-btn-disabled']" @tap="onSendCode">
+          <input v-model="code" class="form-input" type="number" maxlength="6" placeholder="请输入邮箱验证码" />
+          <view :class="['sms-btn', countdown > 0 && 'sms-btn-disabled']" @tap="onSendEmailCode">
             {{ countdown > 0 ? `${countdown}s 后重发` : '获取验证码' }}
           </view>
         </view>
-        <view :class="['submit-btn', !agreed && 'submit-disabled']" @tap="onSmsLogin">登 录</view>
-        <view class="hint">未注册的手机号将自动创建账号</view>
+        <view :class="['submit-btn', !agreed && 'submit-disabled']" @tap="onEmailLogin">登 录</view>
+        <view class="hint">未注册的邮箱将自动创建账号</view>
       </view>
 
       <!-- 密码登录 -->
@@ -59,11 +59,13 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
-import { sendSmsCode } from '@/api'
-import { isMobile } from '@/utils/validator'
+import { sendEmailCode } from '@/api'
+import { isMobile, isEmail } from '@/utils/validator'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 
-const mode = ref<'sms' | 'pwd'>('sms')
+type LoginMode = 'email' | 'pwd'
+const mode = ref<LoginMode>('email')
+const email = ref('')
 const phone = ref('')
 const code = ref('')
 const password = ref('')
@@ -80,29 +82,31 @@ onLoad((q: any) => {
 })
 
 function isValidPhone(p: string) { return isMobile(p) }
+function isValidEmail(e: string) { return isEmail(e) }
 
-async function onSendCode() {
+async function onSendEmailCode() {
   if (countdown.value > 0) return
-  if (!isValidPhone(phone.value)) {
-    return uni.showToast({ title: '请输入正确的手机号', icon: 'none' })
+  if (!isValidEmail(email.value)) {
+    return uni.showToast({ title: '请输入正确的邮箱地址', icon: 'none' })
   }
   try {
-    await sendSmsCode(phone.value, 'LOGIN')
-    uni.showToast({ title: '验证码已发送', icon: 'success' })
+    await sendEmailCode(email.value, 'LOGIN')
+    uni.showToast({ title: '验证码已发送至邮箱', icon: 'success' })
     countdown.value = 60
     timer = setInterval(() => {
       countdown.value--
       if (countdown.value <= 0) { clearInterval(timer); timer = null }
     }, 1000)
   } catch (e) {
-    console.error('发送验证码失败', e)
+    console.error('发送邮箱验证码失败', e)
   }
 }
 
-function onSmsLogin() {
+function onEmailLogin() {
   if (!agreed.value) return uni.showToast({ title: '请先同意用户协议和隐私政策', icon: 'none' })
-  if (!isValidPhone(phone.value)) return uni.showToast({ title: '手机号格式错误', icon: 'none' })
+  if (!isValidEmail(email.value)) return uni.showToast({ title: '邮箱格式错误', icon: 'none' })
   if (!code.value) return uni.showToast({ title: '请输入验证码', icon: 'none' })
+  if (!/^\d{6}$/.test(code.value)) return uni.showToast({ title: '验证码为6位数字', icon: 'none' })
   doLogin()
 }
 
@@ -119,8 +123,8 @@ function onPwdLogin() {
 
 async function doLogin() {
   try {
-    if (mode.value === 'sms') {
-      await userStore.loginBySms(phone.value, code.value)
+    if (mode.value === 'email') {
+      await userStore.loginByEmail(email.value, code.value)
     } else {
       await userStore.loginByPassword(phone.value, password.value)
     }
@@ -148,7 +152,7 @@ function openAgreement(title: string) {
 .login-page {
   min-height: 100vh;
   background: linear-gradient(180deg, $primary 0%, $primary-light 30%, $bg 30%, $bg 100%);
-  padding: 60px 24px 40px;
+  padding: calc(var(--status-bar-height, 20px) + 40px) 24px 40px;
 }
 
 .brand { text-align: center; margin-bottom: 40px; }

@@ -1,7 +1,7 @@
 <template>
   <view class="search-page">
     <!-- 顶部搜索栏 -->
-    <view class="search-header">
+    <view class="search-header" :style="{ paddingTop: `calc(var(--status-bar-height, 20px) + 10px)` }">
       <view class="back-btn" @tap="goBack">
         <view class="back-arrow" />
       </view>
@@ -215,7 +215,11 @@ function onInput() {
   align-items: center;
   gap: 10px;
   padding: 10px 16px 14px;
+  padding-top: calc(var(--status-bar-height, 20px) + 10px);
   background: linear-gradient(180deg, $header-start 0%, $primary 100%);
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 .back-btn {
@@ -229,8 +233,8 @@ function onInput() {
 .back-arrow {
   width: 10px;
   height: 10px;
-  border-left: 2px solid $text;
-  border-bottom: 2px solid $text;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
   transform: rotate(45deg);
   margin-left: 6px;
 }
@@ -276,7 +280,7 @@ function onInput() {
 
 .header-action {
   font-size: 15px;
-  color: $text;
+  color: #fff;
   font-weight: 500;
   padding: 0 4px;
 }

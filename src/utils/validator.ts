@@ -7,6 +7,11 @@ export const isMobile = (phone: string | undefined | null): boolean => {
   return /^1[3-9]\d{9}$/.test(String(phone || ''))
 }
 
+/** 校验邮箱 */
+export const isEmail = (email: string | undefined | null): boolean => {
+  return /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(String(email || ''))
+}
+
 /** 校验短信验证码（6 位数字） */
 export const isSmsCode = (code: string | undefined | null): boolean => {
   return /^\d{6}$/.test(String(code || ''))

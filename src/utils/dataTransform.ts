@@ -13,6 +13,7 @@ import type {
   DishVO,
   DishCardVO,
   DishCategoryVO,
+  RecommendDishVO,
 } from '@/types/api'
 
 /**
@@ -21,7 +22,7 @@ import type {
 export function addressDtoToVo(dto: AddressDTO): AddressVO {
   const region = [dto.province, dto.city, dto.district].filter(Boolean).join(' ')
   return {
-    id: dto.id || 0,
+    id: dto.id || '',
     name: dto.contactName,
     phone: dto.contactPhone,
     region,
@@ -97,13 +98,51 @@ const MERCHANT_BG_LIST = [
   'linear-gradient(135deg, #FFC107, #FFD54F)',
 ]
 
-function merchantBg(id?: number): string {
-  if (!id) return MERCHANT_BG_LIST[0]
-  return MERCHANT_BG_LIST[(id % MERCHANT_BG_LIST.length)]
+/**
+ * 将ID（字符串或数字）转换为安全的哈希索引，用于选择背景色等
+ * 避免直接对大数字ID取模导致精度丢失
+ */
+function idToIndex(id: number | string | undefined, length: number): number {
+  if (id === undefined || id === null || id === '') return 0
+  const s = String(id)
+  let hash = 0
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash) % length
+}
+
+function merchantBg(id?: number | string): string {
+  return MERCHANT_BG_LIST[idToIndex(id, MERCHANT_BG_LIST.length)]
+}
+
+/**
+ * 判断字符串是否为 URL（http/https 或 / 开头的路径）
+ */
+function isUrl(str?: string): boolean {
+  if (!str) return false
+  const s = str.trim()
+  if (!s) return false
+  return /^https?:\/\//i.test(s) || s.startsWith('/')
+}
+
+/**
+ * 从商家对象中提取图片URL（兼容 coverUrl/cover/avatar/image/logo(URL) 等字段）
+ */
+function extractMerchantImage(m?: MerchantVO): string {
+  if (!m) return ''
+  // 优先使用明确的图片字段
+  const candidates = [m.coverUrl, m.cover, m.avatar, m.image]
+  for (const c of candidates) {
+    if (isUrl(c)) return c!.trim()
+  }
+  // logo 字段如果是URL也使用
+  if (isUrl(m.logo)) return m.logo!.trim()
+  return ''
 }
 
 function merchantLogo(m?: MerchantVO): string {
-  if (m?.logo) return m.logo
+  if (m?.logo && !isUrl(m.logo)) return m.logo
   // 根据名称首字生成兜底 Logo
   return (m?.name || '店').charAt(0)
 }
@@ -120,10 +159,11 @@ function formatDistance(meters?: number): string {
 export function merchantVoToCard(m?: MerchantVO): MerchantCardVO {
   const item = m || ({} as MerchantVO)
   return {
-    id: item.id || 0,
+    id: item.id || '',
     name: item.name || '未知商家',
     logo: merchantLogo(item),
     bg: merchantBg(item.id),
+    imageUrl: extractMerchantImage(item),
     rating: Number(item.rating || 0),
     monthlySales: item.monthSales || 0,
     minOrder: Number(item.minOrderAmount || 0),
@@ -134,6 +174,8 @@ export function merchantVoToCard(m?: MerchantVO): MerchantCardVO {
     promo: (item.promos || []).map((p) => p.text).join(' ') || '',
     perCapita: item.perCapita,
     top: Number(item.rating || 0) >= 4.8,
+    supportDelivery: item.supportDelivery,
+    supportPickup: item.supportPickup,
   }
 }
 
@@ -149,9 +191,8 @@ const DISH_BG_LIST = [
   'linear-gradient(135deg, #9C27B0, #BA68C8)',
 ]
 
-function dishBg(id?: number): string {
-  if (!id) return DISH_BG_LIST[0]
-  return DISH_BG_LIST[(id % DISH_BG_LIST.length)]
+function dishBg(id?: number | string): string {
+  return DISH_BG_LIST[idToIndex(id, DISH_BG_LIST.length)]
 }
 
 /**
@@ -159,9 +200,10 @@ function dishBg(id?: number): string {
  */
 export function dishVoToCard(d?: DishVO, qty = 0): DishCardVO {
   const item = d || ({} as DishVO)
+  const imgUrl = isUrl(item.image) ? item.image!.trim() : ''
   return {
-    id: item.id || 0,
-    merchantId: item.merchantId || 0,
+    id: item.id || '',
+    merchantId: item.merchantId || '',
     name: item.name || '未知菜品',
     desc: item.description || '',
     sales: item.monthSales || item.totalSales || 0,
@@ -169,7 +211,8 @@ export function dishVoToCard(d?: DishVO, qty = 0): DishCardVO {
     price: Number(item.price || 0),
     originalPrice: item.originalPrice ? Number(item.originalPrice) : undefined,
     tags: (item.tags || []).map((t) => ({ type: 'primary', text: t })),
-    bg: item.image || dishBg(item.id),
+    bg: dishBg(item.id),
+    imageUrl: imgUrl,
     qty,
   }
 }
@@ -187,4 +230,18 @@ export function menuCategoriesToCard(
     icon: icons[idx % icons.length],
     dishes: (c.dishes || []).map((d) => dishVoToCard(d, qtyMap?.[`${d.id}-${''}`] || 0)),
   }))
+}
+
+/**
+ * 将后端推荐菜品列表转换为前端卡片（提取 imageUrl）
+ */
+export function recommendDishesToCard(list?: RecommendDishVO[]): RecommendDishVO[] {
+  return (list || []).map((d) => {
+    const imgUrl = isUrl(d.image) ? d.image!.trim() : ''
+    return {
+      ...d,
+      imageUrl: imgUrl,
+      bg: d.bg || dishBg(d.id),
+    }
+  })
 }

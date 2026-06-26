@@ -1,7 +1,28 @@
 <template>
   <view class="detail-page">
+    <!-- 顶部导航栏 -->
+    <view class="detail-navbar">
+      <view class="nav-back" @tap="goBack">
+        <view class="back-arrow" />
+      </view>
+      <text class="nav-title">商品详情</text>
+      <view class="nav-fav" @tap="toggleDishFavorite">
+        <CategoryIcon :name="isDishFavorited ? 'heart-filled' : 'heart-empty'" :size="22" :color="isDishFavorited ? '#FF4B33' : '#fff'" />
+      </view>
+    </view>
+
     <view class="detail-hero">
-      <view class="detail-product-img" :style="{ background: display.bg }"></view>
+      <view class="detail-product-img-wrap">
+        <SmartImage
+          :src="display.imageUrl"
+          :bg="display.bg"
+          icon="meishi"
+          :iconSize="60"
+          radius="50%"
+          round
+          mode="aspectFill"
+        />
+      </view>
     </view>
 
     <view class="detail-content">
@@ -78,6 +99,7 @@ import { getDishDetail } from '@/api'
 import type { DishVO, DishSpecVO } from '@/types/api'
 import FloatingCart from '@/components/FloatingCart/FloatingCart.vue'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import { useCartStore } from '@/store/cart'
 import { dishVoToCard } from '@/utils/dataTransform'
 
@@ -86,12 +108,51 @@ const activeSpec = ref(0)
 const activeFlavor = ref(0)
 const qty = ref(1)
 const cartStore = useCartStore()
+const currentDishId = ref<string | number>('')
+const DISH_FAV_KEY = 'wzz_dish_favorites'
+
+// 菜品收藏状态（本地存储）
+const isDishFavorited = ref(false)
+
+function loadDishFavStatus() {
+  try {
+    const favs: string[] = uni.getStorageSync(DISH_FAV_KEY) || []
+    isDishFavorited.value = favs.includes(String(currentDishId.value))
+  } catch (e) {
+    isDishFavorited.value = false
+  }
+}
+
+function toggleDishFavorite() {
+  try {
+    let favs: string[] = uni.getStorageSync(DISH_FAV_KEY) || []
+    const id = String(currentDishId.value)
+    if (favs.includes(id)) {
+      favs = favs.filter(f => f !== id)
+      isDishFavorited.value = false
+      uni.showToast({ title: '已取消收藏', icon: 'none' })
+    } else {
+      favs.unshift(id)
+      if (favs.length > 100) favs = favs.slice(0, 100)
+      isDishFavorited.value = true
+      uni.showToast({ title: '收藏成功', icon: 'success' })
+    }
+    uni.setStorageSync(DISH_FAV_KEY, favs)
+  } catch (e) {
+    uni.showToast({ title: '操作失败', icon: 'none' })
+  }
+}
+
+function goBack() {
+  uni.navigateBack()
+}
 
 const display = computed(() => {
   const card = dishVoToCard(dish.value as DishVO)
   return {
     name: card.name,
     bg: card.bg,
+    imageUrl: card.imageUrl,
     rating: card.rating.toFixed(1),
     sales: card.sales,
     goodRate: 98,
@@ -122,19 +183,24 @@ const totalPrice = computed(() => {
 })
 
 onLoad((q: any) => {
-  const id = Number(q?.id)
-  if (id) loadData(id)
+  const id = q?.id
+  if (id) {
+    currentDishId.value = id
+    loadData(id)
+    loadDishFavStatus()
+  }
 })
 
 onMounted(() => {
   cartStore.fetchCart()
 })
 
-async function loadData(id: number) {
+async function loadData(id: string | number) {
   try {
-    dish.value = await getDishDetail(id)
+    dish.value = await getDishDetail(id as any)
   } catch (e) {
     console.error('加载菜品详情失败', e)
+    uni.showToast({ title: '加载菜品详情失败', icon: 'none' })
   }
 }
 
@@ -177,10 +243,65 @@ function goCart() {
   position: relative;
 }
 
+.detail-navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: calc(var(--status-bar-height, 20px) + 44px);
+  padding-top: var(--status-bar-height, 20px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.85));
+  backdrop-filter: blur(10px);
+}
+
+.nav-back {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.back-arrow {
+  width: 10px;
+  height: 10px;
+  border-left: 2px solid #333;
+  border-bottom: 2px solid #333;
+  transform: rotate(45deg);
+  margin-left: 6px;
+}
+
+.nav-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #333;
+}
+
+.nav-fav {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .detail-hero {
   background: $secondary;
-  padding: 16px 16px 24px;
+  padding: calc(var(--status-bar-height, 20px) + 60px) 16px 24px;
   text-align: center;
+}
+
+.detail-product-img-wrap {
+  width: 200px;
+  height: 200px;
+  margin: 16px auto 0;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
 .detail-product-img {

@@ -12,7 +12,16 @@
       </view>
       <view class="cart-list">
         <view v-for="item in items" :key="item.id" class="cart-item">
-          <view class="item-img" :style="{ background: itemBg(item) }"></view>
+          <view class="item-img-wrap">
+            <SmartImage
+              :src="item.dishImage"
+              bg="linear-gradient(135deg, #FF6B35, #FFC107)"
+              icon="meishi"
+              :iconSize="28"
+              radius="8px"
+              mode="aspectFill"
+            />
+          </view>
           <view class="item-info">
             <view class="item-name">{{ item.dishName }}</view>
             <view class="item-spec">{{ item.specName || '默认' }}</view>
@@ -42,6 +51,10 @@
       </view>
       <view class="checkout-btn" @tap="goCheckout">去结算({{ totalCount }})</view>
     </view>
+
+    <!-- #ifdef H5 -->
+    <GlobalTabbar />
+    <!-- #endif -->
   </view>
 </template>
 
@@ -49,10 +62,14 @@
 import { computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
+import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 import { useCartStore } from '@/store/cart'
+import { useTabStore } from '@/store/tab'
 import type { CartItemVO } from '@/types/api'
 
 const cartStore = useCartStore()
+const tabStore = useTabStore()
 
 const items = computed(() => cartStore.items)
 const totalCount = computed(() => cartStore.totalCount)
@@ -62,13 +79,9 @@ const payable = computed(() => {
 })
 
 onShow(() => {
+  tabStore.setActiveTab('/pages/cart/index')
   cartStore.fetchCart()
 })
-
-function itemBg(item: CartItemVO) {
-  if (item.dishImage) return `url(${item.dishImage}) center/cover`
-  return 'linear-gradient(135deg, #FF6B35, #FFC107)'
-}
 
 function onInc(item: CartItemVO) {
   cartStore.changeQty(item.id, item.quantity + 1)
@@ -92,10 +105,14 @@ function goCheckout() {
 <style lang="scss" scoped>
 @use '@/styles/variables.scss' as *;
 
+// TabBar高度约 56px + safe-area-inset-bottom
+$tabbar-height: 56px;
+$tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
+
 .cart {
   min-height: 100vh;
   background: $bg;
-  padding-bottom: 80px;
+  padding-bottom: $tabbar-safe;
 }
 
 .empty {
@@ -154,11 +171,12 @@ function goCheckout() {
   border-bottom: 1px solid $border;
 }
 
-.item-img {
+.item-img-wrap {
   width: 76px;
   height: 76px;
   border-radius: 8px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .item-info {
@@ -235,7 +253,7 @@ function goCheckout() {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: $tabbar-safe;
   height: 56px;
   background: #fff;
   display: flex;
@@ -243,6 +261,7 @@ function goCheckout() {
   padding: 0 16px;
   border-top: 1px solid $border;
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+  z-index: 99;
 }
 
 .total-area {

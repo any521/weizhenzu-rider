@@ -2,12 +2,13 @@
   <view class="addresses">
     <view v-if="loading" class="loading">加载中...</view>
     <view v-else-if="!list.length" class="empty">
-      <text class="empty-icon">📍</text>
-      <text class="empty-text">暂无地址</text>
+      <view class="empty-icon-wrap"><CategoryIcon name="location" :size="60" color="#ccc" /></view>
+      <text class="empty-text">暂无收货地址</text>
+      <text class="empty-hint">点击下方按钮添加收货地址</text>
     </view>
     <view v-else class="address-list">
       <view
-        v-for="a in list"
+        v-for="a in sortedList"
         :key="a.id"
         :class="['addr-card', a.default && 'addr-default']"
         @tap="onSelect(a)"
@@ -20,8 +21,8 @@
           <text v-if="a.default" class="default-tag">默认</text>
         </view>
         <view class="addr-row">
-          <text class="addr-tag">{{ a.tag }}</text>
-          <text class="addr-detail">{{ a.address }}</text>
+          <text v-if="a.tag" class="addr-tag">{{ a.tag }}</text>
+          <text class="addr-detail">{{ a.region }} {{ a.address }}</text>
         </view>
         <view class="addr-actions">
           <text class="action default-action" @tap.stop="setDefault(a)">
@@ -40,17 +41,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { getAddressList, deleteAddress, setDefaultAddress } from '@/api'
 import type { AddressVO } from '@/types/api'
+import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 
 const list = ref<AddressVO[]>([])
 const loading = ref(false)
-let fromCheckout = false
+let selectMode = false
+const SELECTED_KEY = 'wzz_selected_address'
 
-onLoad((q: any) => { fromCheckout = q?.from === 'checkout' })
+onLoad((q: any) => {
+  // selectMode: 从任何页面进入选择地址模式（checkout、首页等）
+  selectMode = q?.select === '1' || q?.from === 'checkout'
+})
 onShow(() => load())
+
+const sortedList = computed(() => {
+  return [...list.value].sort((a, b) => {
+    if (a.default && !b.default) return -1
+    if (!a.default && b.default) return 1
+    return 0
+  })
+})
 
 async function load() {
   loading.value = true
@@ -63,19 +77,23 @@ async function load() {
   }
 }
 
-function onSelect(a: any) {
-  if (fromCheckout) {
-    uni.setStorageSync('wzz_selected_address', a)
+function onSelect(a: AddressVO) {
+  if (selectMode) {
+    uni.setStorageSync(SELECTED_KEY, a)
     uni.navigateBack()
   }
 }
+
 function add() { uni.navigateTo({ url: '/pages/address/edit' }) }
-function edit(a: any) { uni.navigateTo({ url: `/pages/address/edit?id=${a.id}` }) }
+function edit(a: AddressVO) { uni.navigateTo({ url: `/pages/address/edit?id=${a.id}` }) }
+
 async function del(a: AddressVO) {
-  const confirmed = await uni.showModal({
-    title: '提示', content: '确定删除该地址？',
-  }).then(r => r.confirm).catch(() => false)
-  if (!confirmed) return
+  const res = await uni.showModal({
+    title: '提示',
+    content: '确定删除该地址？',
+    confirmColor: '#FF6B35',
+  }).catch(() => ({ confirm: false } as any))
+  if (!res.confirm) return
   try {
     await deleteAddress(a.id)
     list.value = list.value.filter(item => item.id !== a.id)
@@ -84,7 +102,9 @@ async function del(a: AddressVO) {
     console.error('删除地址失败', e)
   }
 }
+
 async function setDefault(a: AddressVO) {
+  if (a.default) return
   try {
     await setDefaultAddress(a.id)
     list.value.forEach(item => { item.default = item.id === a.id })
@@ -101,26 +121,30 @@ async function setDefault(a: AddressVO) {
 .addresses {
   min-height: 100vh;
   background: $bg;
-  padding: 12px 16px 80px;
+  padding: 12px 16px 100px;
 }
 
 .loading, .empty {
   text-align: center;
-  padding: 60px 0;
+  padding: 80px 0;
   color: $text-muted;
-  .empty-icon { display: block; font-size: 60px; opacity: 0.5; margin-bottom: 12px; }
+  .empty-icon-wrap { display: flex; justify-content: center; margin-bottom: 12px; opacity: 0.6; }
+  .empty-text { display: block; font-size: 15px; color: $text-light; margin-bottom: 8px; }
+  .empty-hint { display: block; font-size: 12px; color: $text-muted; }
 }
 
 .addr-card {
   background: #fff;
   border-radius: $radius-md;
-  padding: 14px;
+  padding: 14px 16px;
   margin-bottom: 10px;
   box-shadow: $shadow;
+  transition: all 0.2s;
 }
 
 .addr-default {
   border: 1px solid $primary;
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.03), #fff);
 }
 
 .addr-top {
@@ -133,7 +157,7 @@ async function setDefault(a: AddressVO) {
 .addr-user {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .addr-name {
@@ -151,8 +175,9 @@ async function setDefault(a: AddressVO) {
   background: $primary;
   color: #fff;
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
+  font-weight: 500;
 }
 
 .addr-row {
@@ -166,15 +191,18 @@ async function setDefault(a: AddressVO) {
   background: rgba(255, 107, 53, 0.1);
   color: $primary;
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 2px 8px;
   border-radius: 4px;
   flex-shrink: 0;
+  margin-top: 2px;
 }
 
 .addr-detail {
   color: $text-light;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+  flex: 1;
+  word-break: break-all;
 }
 
 .addr-actions {
@@ -188,7 +216,7 @@ async function setDefault(a: AddressVO) {
 
 .action {
   color: $text-light;
-  padding: 4px 8px;
+  padding: 6px 10px;
 }
 
 .action.danger {
@@ -199,6 +227,7 @@ async function setDefault(a: AddressVO) {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding: 6px 10px 6px 0;
 }
 
 .radio {
@@ -206,6 +235,7 @@ async function setDefault(a: AddressVO) {
   height: 16px;
   border-radius: 50%;
   border: 1.5px solid $text-muted;
+  flex-shrink: 0;
 }
 
 .radio-active {
@@ -227,14 +257,14 @@ async function setDefault(a: AddressVO) {
 
 .action-right {
   display: flex;
-  gap: 10px;
+  gap: 6px;
 }
 
 .add-btn {
   position: fixed;
   left: 16px;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
   height: 50px;
   line-height: 50px;
   text-align: center;
@@ -244,5 +274,6 @@ async function setDefault(a: AddressVO) {
   font-size: 16px;
   font-weight: 600;
   box-shadow: 0 4px 16px rgba(255, 107, 53, 0.3);
+  z-index: 10;
 }
 </style>

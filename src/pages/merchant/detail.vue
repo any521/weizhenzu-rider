@@ -3,7 +3,19 @@
     <!-- 商家信息头 -->
     <view class="merchant-header">
       <view class="merchant-info-row">
-        <view class="merchant-logo" :style="{ background: card.bg }">{{ card.logo }}</view>
+        <view class="merchant-logo-wrap">
+          <SmartImage
+            v-if="card.imageUrl"
+            :src="card.imageUrl"
+            :bg="card.bg"
+            icon="shop"
+            :iconSize="22"
+            radius="50%"
+            round
+            mode="aspectFill"
+          />
+          <view v-else class="merchant-logo" :style="{ background: card.bg }">{{ card.logo }}</view>
+        </view>
         <view class="merchant-detail">
           <view class="merchant-name-row">{{ card.name }}</view>
           <view class="merchant-rating">
@@ -12,6 +24,11 @@
             <text>起送 ¥{{ card.minOrder }}</text>
             <text>配送 ¥{{ card.deliveryFee }}</text>
           </view>
+        </view>
+        <!-- 关注按钮 -->
+        <view :class="['fav-btn', isFavorited && 'fav-btn--active']" @tap="toggleFavorite">
+          <CategoryIcon :name="isFavorited ? 'heart-filled' : 'heart-empty'" :size="18" />
+          <text class="fav-text">{{ isFavorited ? '已关注' : '关注' }}</text>
         </view>
       </view>
       <view class="merchant-promo-row">
@@ -42,7 +59,16 @@
           class="menu-item"
           @tap="goDish(d.id)"
         >
-          <view class="menu-item-img" :style="{ background: d.bg }"></view>
+          <view class="menu-item-img-wrap">
+            <SmartImage
+              :src="d.imageUrl"
+              :bg="d.bg"
+              icon="meishi"
+              :iconSize="28"
+              radius="8px"
+              mode="aspectFill"
+            />
+          </view>
           <view class="menu-item-info">
             <view class="menu-item-name">{{ d.name }}</view>
             <view class="menu-item-desc">{{ d.desc }}</view>
@@ -117,11 +143,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getMerchantDetail, getMerchantMenu, getMerchantReviews } from '@/api'
+import { getMerchantDetail, getMerchantMenu, getMerchantReviews, addFavorite, removeFavorite, isFavorite } from '@/api'
 import type { MerchantVO, DishCategoryVO, ReviewVO } from '@/types/api'
 import FloatingCart from '@/components/FloatingCart/FloatingCart.vue'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import { useCartStore } from '@/store/cart'
+import { useUserStore } from '@/store/user'
 import { merchantVoToCard, menuCategoriesToCard } from '@/utils/dataTransform'
 
 const detail = ref<Partial<MerchantVO>>({})
@@ -132,7 +160,9 @@ const tabs = ref(['点餐', '评价', '商家'])
 const activeTab = ref(0)
 const contentHeight = ref(600)
 const cartStore = useCartStore()
-const merchantId = ref(0)
+const userStore = useUserStore()
+const merchantId = ref<string | number>('')
+const isFavorited = ref(false)
 
 const card = computed(() => merchantVoToCard(detail.value as MerchantVO))
 const menuSections = computed(() => menuCategoriesToCard(categories.value, cartStore.qtyMap))
@@ -146,9 +176,12 @@ const cartItemMap = computed(() => {
 })
 
 onLoad((q: any) => {
-  const id = q?.id || '1'
-  merchantId.value = Number(id)
+  const id = q?.id || ''
+  merchantId.value = id
   loadData(id)
+  if (userStore.isLoggedIn) {
+    checkFavoriteStatus(id)
+  }
   uni.getSystemInfo({
     success: (res: any) => {
       contentHeight.value = res.windowHeight - 220
@@ -166,11 +199,39 @@ watch(activeTab, (idx) => {
   }
 })
 
-async function loadData(id: number) {
+async function checkFavoriteStatus(id: string | number) {
+  try {
+    isFavorited.value = await isFavorite(id as any)
+  } catch (e) {
+    isFavorited.value = false
+  }
+}
+
+async function toggleFavorite() {
+  if (!userStore.isLoggedIn) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    return
+  }
+  try {
+    if (isFavorited.value) {
+      await removeFavorite(merchantId.value as any)
+      isFavorited.value = false
+      uni.showToast({ title: '已取消关注', icon: 'none' })
+    } else {
+      await addFavorite(merchantId.value as any)
+      isFavorited.value = true
+      uni.showToast({ title: '关注成功', icon: 'success' })
+    }
+  } catch (e: any) {
+    uni.showToast({ title: e?.message || '操作失败', icon: 'none' })
+  }
+}
+
+async function loadData(id: string | number) {
   try {
     const [m, menu] = await Promise.all([
-      getMerchantDetail(id),
-      getMerchantMenu(id),
+      getMerchantDetail(id as any),
+      getMerchantMenu(id as any),
     ])
     detail.value = m || {}
     categories.value = menu || []
@@ -227,7 +288,7 @@ function onDec(d: any) {
   }
 }
 
-function goDish(id: number) {
+function goDish(id: string | number) {
   uni.navigateTo({ url: `/pages/dish/detail?id=${id}` })
 }
 function goCart() {
@@ -256,6 +317,14 @@ function goCart() {
   align-items: center;
   gap: 12px;
   padding: 12px 0;
+}
+
+.merchant-logo-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-logo {
@@ -296,6 +365,32 @@ function goCart() {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+}
+
+.fav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: $radius-md;
+  background: rgba(255, 107, 53, 0.08);
+  margin-left: 8px;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  color: $text-light;
+
+  &--active {
+    background: rgba(255, 75, 51, 0.12);
+    color: #FF4B33;
+  }
+}
+
+.fav-text {
+  font-size: 10px;
+  color: $primary;
+  margin-top: 2px;
+  font-weight: 500;
 }
 
 .merchant-promo-row {
@@ -387,6 +482,14 @@ function goCart() {
 
 .menu-item:last-child {
   border-bottom: none;
+}
+
+.menu-item-img-wrap {
+  width: 84px;
+  height: 84px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .menu-item-img {

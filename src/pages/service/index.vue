@@ -1,7 +1,7 @@
 <template>
   <view class="service-page">
     <!-- 顶部标题栏 -->
-    <view class="navbar">
+    <view class="navbar" :style="{ paddingTop: 'var(--status-bar-height, 20px)', height: `calc(var(--status-bar-height, 20px) + 44px)` }">
       <view class="back-btn" @tap="goBack">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 18l-6-6 6-6"/>
@@ -96,8 +96,6 @@ function goBack() {
 }
 
 .navbar {
-  height: calc($status-bar-height + $navbar-height);
-  padding-top: $status-bar-height;
   background: $card;
   display: flex;
   align-items: center;

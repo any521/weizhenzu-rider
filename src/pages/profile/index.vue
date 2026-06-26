@@ -3,20 +3,38 @@
     <!-- 顶部黄色头部 -->
     <view class="profile-header">
       <view class="header-top">
-        <view class="user-card">
+        <view class="user-card" @tap="goEditProfile">
           <view class="user-avatar">
-            <CategoryIcon name="avatar" :size="40" />
+            <image v-if="userStore.avatar" class="avatar-img" :src="userStore.avatar" mode="aspectFill" />
+            <CategoryIcon v-else name="avatar" :size="40" />
           </view>
           <view class="user-info">
             <view class="user-name">
               <text>{{ userStore.userInfo?.nickname || '未登录' }}</text>
-              <view class="auth-badge">实名待认证</view>
+              <view v-if="userStore.isLoggedIn" class="auth-badge">实名待认证</view>
             </view>
+            <view v-if="userStore.userInfo?.email" class="user-email">
+              {{ userStore.userInfo.email }}
+            </view>
+            <view v-else-if="userStore.isLoggedIn" class="user-email">点击编辑个人资料 ›</view>
           </view>
         </view>
         <view class="settings-btn" @tap="goSettings">
           <CategoryIcon name="settings" :size="22" />
         </view>
+      </view>
+
+      <!-- 手机号绑定状态条 -->
+      <view v-if="userStore.isLoggedIn" class="phone-bind-bar" @tap="goBindPhone">
+        <view class="bind-left">
+          <CategoryIcon name="phone" :size="20" color="#FF6B35" />
+          <view class="bind-info">
+            <text v-if="userStore.phoneBound" class="bind-text">手机号已绑定：{{ userStore.userInfo?.phone || '****' }}</text>
+            <text v-else class="bind-text bind-text-warn">未绑定手机号</text>
+            <text v-if="!userStore.phoneBound" class="bind-sub">下单前需绑定手机号，点击立即绑定</text>
+          </view>
+        </view>
+        <text class="bind-arrow">›</text>
       </view>
     </view>
 
@@ -31,25 +49,30 @@
       </view>
     </view>
 
-    <!-- 促销横幅 -->
-    <view class="promo-banner" @tap="onPromo">
-      <view class="promo-content">
-        <view class="promo-title">25元神券</view>
-        <view class="promo-subtitle">立即领取</view>
-      </view>
-      <view class="promo-btn">去领取</view>
-    </view>
-
     <!-- 我的收藏 -->
-    <view class="favorites-card" @tap="onFavorites">
+    <view v-if="userStore.isLoggedIn" class="favorites-card" @tap="onFavorites">
       <view class="favorites-thumbs">
-        <view v-for="i in 3" :key="i" class="favorites-thumb">
-          <CategoryIcon name="shop" :size="24" />
+        <template v-if="favoriteMerchants.length">
+          <view v-for="(m, idx) in favoriteMerchants" :key="m.id" class="favorites-thumb">
+            <SmartImage
+              v-if="m.imageUrl"
+              :src="m.imageUrl"
+              :bg="m.bg"
+              icon="shop"
+              :iconSize="20"
+              radius="6px"
+              mode="aspectFill"
+            />
+            <view v-else class="fav-logo-text" :style="{ background: m.bg }">{{ m.logo }}</view>
+          </view>
+        </template>
+        <view v-else class="favorites-thumb empty-thumb">
+          <CategoryIcon name="shop" :size="20" />
         </view>
       </view>
       <view class="favorites-text">
         <text class="favorites-title">我的收藏</text>
-        <text class="favorites-count">收藏了 {{ favoriteCount }} 个商家</text>
+        <text class="favorites-count">{{ favoriteCount }} 个商家 · {{ dishFavCount }} 个菜品</text>
       </view>
       <text class="favorites-arrow">›</text>
     </view>
@@ -95,39 +118,63 @@
 
 <script setup lang="ts">
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 import { useTabStore } from '@/store/tab'
 import { useUserStore } from '@/store/user'
 import { onShow } from '@dcloudio/uni-app'
 import { ref, onMounted } from 'vue'
 import { getFavorites, getMyCoupons } from '@/api'
+import type { MerchantCardVO } from '@/types/api'
 
 const tabStore = useTabStore()
 const userStore = useUserStore()
 
 const favoriteCount = ref(0)
+const favoriteMerchants = ref<MerchantCardVO[]>([])
+const dishFavCount = ref(0)
+const DISH_FAV_KEY = 'wzz_dish_favorites'
 
 const assets = ref([
-  { value: 0, label: '红包/神券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
-  { value: 0, label: '商家代金券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
-  { value: 0, label: '神抢手券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
-  { value: 0, label: '美团币返利', onTap: () => uni.showToast({ title: '美团币返利', icon: 'none' }) },
-  { value: 0, label: '津贴', onTap: () => uni.showToast({ title: '津贴', icon: 'none' }) }
+  { value: 0, label: '优惠券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
 ])
 
 async function loadProfileData() {
-  try {
-    const favPage = await getFavorites({ current: 1, size: 1 })
-    favoriteCount.value = favPage.total || 0
-  } catch (e) {
-    console.error('加载收藏数失败', e)
+  if (userStore.isLoggedIn) {
+    try {
+      const favPage = await getFavorites({ current: 1, size: 3 })
+      favoriteCount.value = favPage.total || 0
+      favoriteMerchants.value = (favPage.list || []).slice(0, 3)
+    } catch (e) {
+      console.error('加载收藏失败', e)
+      favoriteCount.value = 0
+      favoriteMerchants.value = []
+    }
+    // 加载本地菜品收藏数量
+    try {
+      const dishFavs: string[] = uni.getStorageSync(DISH_FAV_KEY) || []
+      dishFavCount.value = dishFavs.length
+    } catch (e) {
+      dishFavCount.value = 0
+    }
+  } else {
     favoriteCount.value = 0
+    favoriteMerchants.value = []
+    dishFavCount.value = 0
   }
 
   try {
     const couponsRes: any = await getMyCoupons()
-    const list = couponsRes?.list || couponsRes || []
-    const unusedCount = (list as any[]).filter((c: any) => c.status === 1).length
+    // 兼容多种返回格式：{list: []}、{records: []}、直接数组
+    let list: any[] = []
+    if (Array.isArray(couponsRes)) {
+      list = couponsRes
+    } else if (Array.isArray(couponsRes?.list)) {
+      list = couponsRes.list
+    } else if (Array.isArray(couponsRes?.records)) {
+      list = couponsRes.records
+    }
+    const unusedCount = list.filter((c: any) => c.status === 1).length
     assets.value[0].value = unusedCount
   } catch (e) {
     console.error('加载优惠券失败', e)
@@ -141,6 +188,12 @@ onMounted(() => {
 
 onShow(() => {
   tabStore.setActiveTab('/pages/profile/index')
+  // 刷新用户资料，确保 phoneBound 状态最新
+  if (userStore.isLoggedIn) {
+    userStore.fetchProfile().catch(() => {})
+  }
+  // 刷新收藏和资产数据
+  loadProfileData()
 })
 
 const features = [
@@ -162,8 +215,16 @@ function goSettings() {
   uni.navigateTo({ url: '/pages/settings/index' })
 }
 
-function onPromo() {
-  uni.switchTab({ url: '/pages/coupon/index' })
+function goEditProfile() {
+  if (!userStore.isLoggedIn) {
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  uni.navigateTo({ url: '/pages/profile/edit' })
+}
+
+function goBindPhone() {
+  uni.navigateTo({ url: '/pages/bind-phone/index' })
 }
 
 function onFavorites() {
@@ -182,7 +243,7 @@ function onFavorites() {
 
 .profile-header {
   background: linear-gradient(180deg, $header-start 0%, $header-end 100%);
-  padding: 52px 16px 28px;
+  padding: calc(var(--status-bar-height, 20px) + 16px) 16px 28px;
 }
 
 .header-top {
@@ -207,6 +268,13 @@ function onFavorites() {
   justify-content: center;
   color: $primary-dark;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: $radius-round;
 }
 
 .user-info {
@@ -239,6 +307,62 @@ function onFavorites() {
   align-items: center;
   justify-content: center;
   color: $text;
+}
+
+.user-email {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 4px;
+}
+
+.phone-bind-bar {
+  margin-top: 16px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: $radius-md;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bind-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.bind-icon {
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.bind-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.bind-text {
+  font-size: 13px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.bind-text-warn {
+  color: #fff;
+  font-weight: 700;
+}
+
+.bind-sub {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
+.bind-arrow {
+  font-size: 18px;
+  color: #fff;
 }
 
 .assets-card {
@@ -284,41 +408,6 @@ function onFavorites() {
   margin-top: 4px;
 }
 
-.promo-banner {
-  margin: 12px 16px 0;
-  border-radius: $radius-md;
-  background: linear-gradient(135deg, $secondary 0%, $primary 100%);
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: $shadow;
-}
-
-.promo-content {
-  color: #fff;
-}
-
-.promo-title {
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.promo-subtitle {
-  font-size: 12px;
-  opacity: 0.95;
-  margin-top: 2px;
-}
-
-.promo-btn {
-  background: #fff;
-  color: $secondary;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 16px;
-}
-
 .favorites-card {
   background: $card;
   margin: 12px 16px 0;
@@ -344,6 +433,23 @@ function onFavorites() {
   align-items: center;
   justify-content: center;
   color: $text-muted;
+  overflow: hidden;
+}
+
+.fav-logo-text {
+  width: 100%;
+  height: 100%;
+  border-radius: $radius-sm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.empty-thumb {
+  background: $bg;
 }
 
 .favorites-text {

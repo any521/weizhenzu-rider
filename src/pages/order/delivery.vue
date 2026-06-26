@@ -73,16 +73,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import { getOrderDelivery } from '@/api'
 import type { DeliveryVO, DeliveryStepVO } from '@/types/api'
+import type { WSMessage } from '@/utils/websocket'
 
 const defaultSteps = ['已下单', '商家接单', '骑手取餐', '配送中', '已送达']
 const delivery = ref<DeliveryVO | null>(null)
 const loading = ref(false)
 const orderId = ref<string | number>('')
+const orderNo = ref('')
 
 const steps = computed(() => {
   if (delivery.value?.steps?.length) {
@@ -138,12 +140,33 @@ onLoad((q: any) => {
     orderId.value = q.id
     fetchDelivery(q.id)
   }
+  // 监听骑手位置WS消息，实时刷新配送数据
+  uni.$on('riderLocation', onRiderLocationMsg)
 })
+
+onUnmounted(() => {
+  uni.$off('riderLocation', onRiderLocationMsg)
+})
+
+function onRiderLocationMsg(msg: WSMessage) {
+  // 只刷新当前订单的数据
+  if (msg.orderId && String(msg.orderId) !== String(orderId.value)) {
+    return
+  }
+  // 骑手位置更新时，重新拉取配送数据（含位置、骑手信息等）
+  if (orderId.value) {
+    fetchDelivery(orderId.value)
+  }
+}
 
 async function fetchDelivery(id: string | number) {
   loading.value = true
   try {
-    delivery.value = await getOrderDelivery(id)
+    const data = await getOrderDelivery(id)
+    delivery.value = data
+    if ((data as any)?.orderNo) {
+      orderNo.value = (data as any).orderNo
+    }
   } catch (e: any) {
     uni.showToast({ title: e?.message || '加载失败', icon: 'none' })
   } finally {
@@ -169,7 +192,11 @@ function callRider() {
 }
 
 function goMap() {
-  uni.navigateTo({ url: `/pages/order/map?id=${orderId.value}` })
+  const params = [`id=${orderId.value}`]
+  if (orderNo.value) {
+    params.push(`orderNo=${encodeURIComponent(orderNo.value)}`)
+  }
+  uni.navigateTo({ url: `/pages/order/map?${params.join('&')}` })
 }
 </script>
 

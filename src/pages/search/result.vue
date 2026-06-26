@@ -1,7 +1,7 @@
 <template>
   <view class="search-result-page">
     <!-- 顶部搜索栏 -->
-    <view class="search-header">
+    <view class="search-header" :style="{ paddingTop: `calc(var(--status-bar-height, 20px) + 10px)` }">
       <view class="back-btn" @tap="goBack">
         <view class="back-arrow" />
       </view>
@@ -26,22 +26,24 @@
 
     <!-- 筛选条 -->
     <view class="filter-bar">
-      <view class="category-scroll" scroll-x show-scrollbar="false">
-        <view
-          v-for="c in categories"
-          :key="c.id"
-          :class="['category-pill', activeCategory === c.id && 'active']"
-          @tap="onCategory(c.id)"
-        >
-          {{ c.name }}
+      <scroll-view class="category-scroll" scroll-x show-scrollbar="false">
+        <view class="category-scroll-inner">
+          <view
+            v-for="c in categories"
+            :key="c.id"
+            :class="['category-pill', activeCategory === c.id && 'active']"
+            @tap="onCategory(c.id)"
+          >
+            {{ c.name }}
+          </view>
         </view>
-      </view>
+      </scroll-view>
       <view class="sort-bar">
         <view
           v-for="s in sorts"
           :key="s.value"
           :class="['sort-item', sort === s.value && 'sort-active']"
-          @tap="sort = s.value"
+          @tap="onSort(s.value)"
         >
           {{ s.label }}
         </view>
@@ -62,8 +64,19 @@
           class="merchant-card"
           @tap="goMerchant(item.id)"
         >
-          <view class="merchant-img" :style="{ background: item.bg }">
-            <text class="logo-text">{{ item.logo }}</text>
+          <view class="merchant-img-wrap">
+            <SmartImage
+              v-if="item.imageUrl"
+              :src="item.imageUrl"
+              :bg="item.bg"
+              icon="shop"
+              :iconSize="30"
+              radius="8px"
+              mode="aspectFill"
+            />
+            <view v-else class="merchant-img" :style="{ background: item.bg }">
+              <text class="logo-text">{{ item.logo }}</text>
+            </view>
           </view>
           <view class="merchant-info">
             <view class="merchant-name">{{ item.name }}</view>
@@ -80,6 +93,9 @@
               <text v-for="(tag, idx) in item.tags" :key="idx" class="merchant-tag">{{ tag.text }}</text>
             </view>
           </view>
+          <view class="fav-btn" :class="{ 'fav-active': favoriteIds.has(String(item.id)) }" @tap.stop="toggleFavorite(item)">
+            <CategoryIcon :name="favoriteIds.has(String(item.id)) ? 'favorite-filled' : 'favorite'" :size="20" />
+          </view>
         </view>
       </view>
 
@@ -93,21 +109,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, watch, onMounted } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import AppEmpty from '@/components/AppEmpty/AppEmpty.vue'
-import { getMerchantPage, getMerchantCategories } from '@/api'
+import { getMerchantPage, getMerchantCategories, addFavorite, removeFavorite, getFavorites } from '@/api'
+import { useUserStore } from '@/store/user'
 import type { MerchantCardVO, MerchantCategoryVO } from '@/types/api'
 
+const userStore = useUserStore()
 const keyword = ref('')
 const focus = ref(false)
 const loading = ref(false)
-const activeCategory = ref(0)
+const activeCategory = ref<number | string | 0>(0)
 const sort = ref('default')
 const scrollHeight = ref(600)
 const categories = ref<MerchantCategoryVO[]>([{ id: 0, name: '全部' }])
 const resultList = ref<MerchantCardVO[]>([])
+const favoriteIds = ref<Set<string>>(new Set())
 
 const sorts = [
   { label: '综合', value: 'default' },
@@ -117,30 +137,80 @@ const sorts = [
 ]
 
 onLoad((q: any) => {
-  keyword.value = q?.keyword || ''
-  if (keyword.value) onSearch()
+  keyword.value = q?.keyword ? decodeURIComponent(q.keyword) : ''
+  if (q?.categoryId) {
+    activeCategory.value = q.categoryId
+  }
+  if (keyword.value || activeCategory.value) onSearch()
 })
 
 onMounted(() => {
   loadCategories()
+  loadFavorites()
   uni.getSystemInfo({
     success: (res: any) => {
-      scrollHeight.value = res.windowHeight - 44 - 44 - 44
+      const statusBar = res.statusBarHeight || 20
+      // header(statusBar+50) + filterBar(约88px)
+      scrollHeight.value = res.windowHeight - statusBar - 50 - 88
     },
   })
+})
+
+onShow(() => {
+  loadFavorites()
 })
 
 async function loadCategories() {
   try {
     const list = await getMerchantCategories()
-    categories.value = [{ id: 0, name: '全部' }, ...(list || []).slice(0, 9)]
+    categories.value = [{ id: 0, name: '全部' }, ...(list || [])]
   } catch (e) {
     console.error('加载分类失败', e)
   }
 }
 
+async function loadFavorites() {
+  if (!userStore.isLoggedIn) {
+    favoriteIds.value = new Set()
+    return
+  }
+  try {
+    const page = await getFavorites({ current: 1, size: 100 })
+    const ids = new Set<string>()
+    ;(page.list || []).forEach((m) => ids.add(String(m.id)))
+    favoriteIds.value = ids
+  } catch (e) {
+    console.error('加载收藏状态失败', e)
+  }
+}
+
+async function toggleFavorite(item: MerchantCardVO) {
+  if (!userStore.isLoggedIn) {
+    uni.showToast({ title: '请先登录', icon: 'none' })
+    uni.navigateTo({ url: '/pages/login/login' })
+    return
+  }
+  const id = String(item.id)
+  const isFav = favoriteIds.value.has(id)
+  try {
+    if (isFav) {
+      await removeFavorite(item.id)
+      favoriteIds.value.delete(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已取消收藏', icon: 'none' })
+    } else {
+      await addFavorite(item.id)
+      favoriteIds.value.add(id)
+      favoriteIds.value = new Set(favoriteIds.value)
+      uni.showToast({ title: '已收藏', icon: 'success' })
+    }
+  } catch (e) {
+    console.error('收藏操作失败', e)
+  }
+}
+
 watch(keyword, () => {
-  if (!keyword.value.trim()) resultList.value = []
+  if (!keyword.value.trim() && !activeCategory.value) resultList.value = []
 })
 
 async function onSearch() {
@@ -154,6 +224,7 @@ async function onSearch() {
     const params: Record<string, any> = { current: 1, size: 20 }
     if (kw) params.keyword = kw
     if (activeCategory.value) params.categoryId = activeCategory.value
+    if (sort.value !== 'default') params.sortBy = sort.value
     const page = await getMerchantPage(params)
     resultList.value = page.list || []
     saveHistory(kw)
@@ -166,6 +237,11 @@ async function onSearch() {
 
 function onCategory(id: number) {
   activeCategory.value = id
+  onSearch()
+}
+
+function onSort(value: string) {
+  sort.value = value
   onSearch()
 }
 
@@ -199,7 +275,11 @@ function goMerchant(id: number | string) {
   align-items: center;
   gap: 10px;
   padding: 10px 16px 14px;
+  padding-top: calc(var(--status-bar-height, 20px) + 10px);
   background: linear-gradient(180deg, $header-start 0%, $primary 100%);
+  position: sticky;
+  top: 0;
+  z-index: 50;
 }
 
 .back-btn {
@@ -213,8 +293,8 @@ function goMerchant(id: number | string) {
 .back-arrow {
   width: 10px;
   height: 10px;
-  border-left: 2px solid $text;
-  border-bottom: 2px solid $text;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
   transform: rotate(45deg);
   margin-left: 6px;
 }
@@ -260,7 +340,7 @@ function goMerchant(id: number | string) {
 
 .header-action {
   font-size: 15px;
-  color: $text;
+  color: #fff;
   font-weight: 500;
   padding: 0 4px;
 }
@@ -271,13 +351,17 @@ function goMerchant(id: number | string) {
 }
 
 .category-scroll {
-  display: flex;
+  white-space: nowrap;
+}
+
+.category-scroll-inner {
+  display: inline-flex;
   gap: 10px;
   padding: 10px 16px;
-  overflow-x: auto;
 }
 
 .category-pill {
+  display: inline-block;
   flex-shrink: 0;
   padding: 6px 14px;
   border-radius: 16px;
@@ -296,6 +380,7 @@ function goMerchant(id: number | string) {
   display: flex;
   justify-content: space-around;
   padding: 10px 16px;
+  border-top: 1px solid $border;
 }
 
 .sort-item {
@@ -353,6 +438,34 @@ function goMerchant(id: number | string) {
   border-radius: $radius-lg;
   padding: 14px;
   box-shadow: $shadow;
+  position: relative;
+}
+
+.fav-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: $text-muted;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+
+.fav-btn.fav-active {
+  color: $danger;
+  opacity: 1;
+}
+
+.merchant-img-wrap {
+  width: 84px;
+  height: 84px;
+  border-radius: $radius-md;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .merchant-img {
@@ -378,6 +491,7 @@ function goMerchant(id: number | string) {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  padding-right: 32px;
 }
 
 .merchant-name {
