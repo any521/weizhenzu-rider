@@ -3,20 +3,18 @@
     <!-- 顶部黄色头部 -->
     <view class="profile-header">
       <view class="header-top">
-        <view class="user-card" @tap="goEditProfile">
+        <view class="user-card">
           <view class="user-avatar">
-            <image v-if="userStore.avatar" class="avatar-img" :src="userStore.avatar" mode="aspectFill" />
-            <CategoryIcon v-else name="avatar" :size="40" />
+            <image v-if="userStore.avatar" :src="userStore.avatar" class="avatar-img" mode="aspectFill" />
+            <CategoryIcon v-else name="avatar" :size="36" color="#fff" />
           </view>
           <view class="user-info">
             <view class="user-name">
               <text>{{ userStore.userInfo?.nickname || '未登录' }}</text>
-              <view v-if="userStore.isLoggedIn" class="auth-badge">实名待认证</view>
             </view>
             <view v-if="userStore.userInfo?.email" class="user-email">
               {{ userStore.userInfo.email }}
             </view>
-            <view v-else-if="userStore.isLoggedIn" class="user-email">点击编辑个人资料 ›</view>
           </view>
         </view>
         <view class="settings-btn" @tap="goSettings">
@@ -27,7 +25,9 @@
       <!-- 手机号绑定状态条 -->
       <view v-if="userStore.isLoggedIn" class="phone-bind-bar" @tap="goBindPhone">
         <view class="bind-left">
-          <CategoryIcon name="phone" :size="20" color="#FF6B35" />
+          <view class="bind-icon">
+            <CategoryIcon name="phone" :size="18" color="#fff" />
+          </view>
           <view class="bind-info">
             <text v-if="userStore.phoneBound" class="bind-text">手机号已绑定：{{ userStore.userInfo?.phone || '****' }}</text>
             <text v-else class="bind-text bind-text-warn">未绑定手机号</text>
@@ -50,29 +50,21 @@
     </view>
 
     <!-- 我的收藏 -->
-    <view v-if="userStore.isLoggedIn" class="favorites-card" @tap="onFavorites">
+    <view class="favorites-card" @tap="onFavorites">
       <view class="favorites-thumbs">
-        <template v-if="favoriteMerchants.length">
-          <view v-for="(m, idx) in favoriteMerchants" :key="m.id" class="favorites-thumb">
-            <SmartImage
-              v-if="m.imageUrl"
-              :src="m.imageUrl"
-              :bg="m.bg"
-              icon="shop"
-              :iconSize="20"
-              radius="6px"
-              mode="aspectFill"
-            />
-            <view v-else class="fav-logo-text" :style="{ background: m.bg }">{{ m.logo }}</view>
+        <template v-if="favoriteMerchants.length > 0">
+          <view v-for="(m, idx) in favoriteMerchants.slice(0, 3)" :key="m.id || idx" class="favorites-thumb">
+            <SmartImage v-if="m.imageUrl" :src="m.imageUrl" bg="linear-gradient(135deg, #FF6B35, #FFC107)" icon="shop" :iconSize="20" radius="6px" mode="aspectFill" />
+            <CategoryIcon v-else name="shop" :size="24" />
           </view>
         </template>
-        <view v-else class="favorites-thumb empty-thumb">
-          <CategoryIcon name="shop" :size="20" />
+        <view v-else class="favorites-thumb">
+          <CategoryIcon name="favorite" :size="24" />
         </view>
       </view>
       <view class="favorites-text">
         <text class="favorites-title">我的收藏</text>
-        <text class="favorites-count">{{ favoriteCount }} 个商家 · {{ dishFavCount }} 个菜品</text>
+        <text class="favorites-count">收藏了 {{ favoriteCount }} 个商家</text>
       </view>
       <text class="favorites-arrow">›</text>
     </view>
@@ -118,68 +110,62 @@
 
 <script setup lang="ts">
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
-import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import { useTabStore } from '@/store/tab'
 import { useUserStore } from '@/store/user'
 import { onShow } from '@dcloudio/uni-app'
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getFavorites, getMyCoupons } from '@/api'
-import type { MerchantCardVO } from '@/types/api'
 
 const tabStore = useTabStore()
 const userStore = useUserStore()
 
 const favoriteCount = ref(0)
-const favoriteMerchants = ref<MerchantCardVO[]>([])
-const dishFavCount = ref(0)
-const DISH_FAV_KEY = 'wzz_dish_favorites'
+const favoriteMerchants = ref<any[]>([])
+const couponCount = ref(0)
+const points = ref(0)
 
-const assets = ref([
-  { value: 0, label: '优惠券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
+const assets = computed(() => [
+  { value: '¥' + Number(userStore.userInfo?.balance || 0).toFixed(2), label: '余额', onTap: () => uni.showToast({ title: '余额功能开发中', icon: 'none' }) },
+  { value: couponCount.value, label: '优惠券', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
+  { value: points.value, label: '积分', onTap: () => uni.showToast({ title: '积分功能开发中', icon: 'none' }) }
 ])
 
 async function loadProfileData() {
-  if (userStore.isLoggedIn) {
-    try {
-      const favPage = await getFavorites({ current: 1, size: 3 })
-      favoriteCount.value = favPage.total || 0
-      favoriteMerchants.value = (favPage.list || []).slice(0, 3)
-    } catch (e) {
-      console.error('加载收藏失败', e)
-      favoriteCount.value = 0
-      favoriteMerchants.value = []
-    }
-    // 加载本地菜品收藏数量
-    try {
-      const dishFavs: string[] = uni.getStorageSync(DISH_FAV_KEY) || []
-      dishFavCount.value = dishFavs.length
-    } catch (e) {
-      dishFavCount.value = 0
-    }
-  } else {
+  try {
+    const favPage = await getFavorites({ current: 1, size: 3 })
+    favoriteCount.value = favPage.total || 0
+    const favList = favPage?.list || []
+    favoriteMerchants.value = favList.slice(0, 3)
+  } catch (e) {
+    console.error('加载收藏失败', e)
     favoriteCount.value = 0
     favoriteMerchants.value = []
-    dishFavCount.value = 0
   }
 
   try {
+    // 后端返回 PageResult 格式 { list: [], total: number }
     const couponsRes: any = await getMyCoupons()
-    // 兼容多种返回格式：{list: []}、{records: []}、直接数组
     let list: any[] = []
-    if (Array.isArray(couponsRes)) {
-      list = couponsRes
-    } else if (Array.isArray(couponsRes?.list)) {
-      list = couponsRes.list
-    } else if (Array.isArray(couponsRes?.records)) {
-      list = couponsRes.records
+    if (couponsRes) {
+      if (Array.isArray(couponsRes)) {
+        list = couponsRes
+      } else if (Array.isArray(couponsRes.list)) {
+        list = couponsRes.list
+      } else if (Array.isArray(couponsRes.records)) {
+        list = couponsRes.records
+      }
     }
-    const unusedCount = list.filter((c: any) => c.status === 1).length
-    assets.value[0].value = unusedCount
+    // 统计未使用的优惠券（status=1表示可用）
+    couponCount.value = list.filter((c: any) => c && c.status === 0).length
   } catch (e) {
     console.error('加载优惠券失败', e)
-    assets.value[0].value = 0
+    couponCount.value = 0
   }
+
+  // 从用户信息获取积分
+  points.value = userStore.userInfo?.points || 0
 }
 
 onMounted(() => {
@@ -192,35 +178,20 @@ onShow(() => {
   if (userStore.isLoggedIn) {
     userStore.fetchProfile().catch(() => {})
   }
-  // 刷新收藏和资产数据
-  loadProfileData()
 })
 
 const features = [
-  { iconName: 'favorite', text: '我的收藏', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/favorites/index' }) },
   { iconName: 'address', text: '我的地址', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/address/list' }) },
-  { iconName: 'coupon-card', text: '优惠券', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
   { iconName: 'service', text: '客服中心', bg: 'rgba(0, 200, 83, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/service/index' }) },
-  { iconName: 'order', text: '我的评价', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.showToast({ title: '我的评价', icon: 'none' }) },
-  { iconName: 'ticket', text: '发票助手', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.showToast({ title: '发票助手', icon: 'none' }) },
-  { iconName: 'terms', text: '餐具设置', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.showToast({ title: '餐具设置', icon: 'none' }) }
+  { iconName: 'order', text: '我的评价', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/profile/reviews' }) }
 ]
 
 const recommends = [
-  { iconName: 'message', text: '消息中心', sub: '查看订单/优惠/系统消息', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/message/index' }) },
-  { iconName: 'shop', text: '浣熊食堂招商', sub: '优质商家招募中', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.showToast({ title: '浣熊食堂招商', icon: 'none' }) }
+  { iconName: 'message', text: '消息中心', sub: '查看订单/优惠/系统消息', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/message/index' }) }
 ]
 
 function goSettings() {
   uni.navigateTo({ url: '/pages/settings/index' })
-}
-
-function goEditProfile() {
-  if (!userStore.isLoggedIn) {
-    uni.navigateTo({ url: '/pages/login/login' })
-    return
-  }
-  uni.navigateTo({ url: '/pages/profile/edit' })
 }
 
 function goBindPhone() {
@@ -243,7 +214,10 @@ function onFavorites() {
 
 .profile-header {
   background: linear-gradient(180deg, $header-start 0%, $header-end 100%);
-  padding: calc(var(--status-bar-height, 20px) + 16px) 16px 28px;
+  padding-top: calc(var(--status-bar-height, 20px) + 52px);
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 28px;
 }
 
 .header-top {
@@ -261,20 +235,20 @@ function onFavorites() {
 .user-avatar {
   width: 64px;
   height: 64px;
-  border-radius: $radius-round;
-  background: #fff;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FF8C42 0%, #FF6B35 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: $primary-dark;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.35);
   overflow: hidden;
+  flex-shrink: 0;
 }
-
 .avatar-img {
   width: 100%;
   height: 100%;
-  border-radius: $radius-round;
+  border-radius: 50%;
 }
 
 .user-info {
@@ -288,14 +262,6 @@ function onFavorites() {
   font-size: 18px;
   font-weight: 700;
   color: $text;
-}
-
-.auth-badge {
-  font-size: 10px;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.5);
-  padding: 2px 6px;
-  border-radius: 8px;
 }
 
 .settings-btn {
@@ -333,8 +299,10 @@ function onFavorites() {
 }
 
 .bind-icon {
-  margin-right: 8px;
-  flex-shrink: 0;
+  width: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .bind-info {
@@ -436,22 +404,6 @@ function onFavorites() {
   overflow: hidden;
 }
 
-.fav-logo-text {
-  width: 100%;
-  height: 100%;
-  border-radius: $radius-sm;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.empty-thumb {
-  background: $bg;
-}
-
 .favorites-text {
   flex: 1;
   display: flex;
@@ -492,7 +444,7 @@ function onFavorites() {
 
 .feature-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   padding: 0 8px;
 }
 

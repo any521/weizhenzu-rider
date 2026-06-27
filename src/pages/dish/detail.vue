@@ -1,11 +1,11 @@
-<template>
+﻿<template>
   <view class="detail-page">
     <!-- 顶部导航栏 -->
     <view class="detail-navbar">
       <view class="nav-back" @tap="goBack">
         <view class="back-arrow" />
       </view>
-      <text class="nav-title">商品详情</text>
+      <text class="nav-title">菜品详情</text>
       <view class="nav-fav" @tap="toggleDishFavorite">
         <CategoryIcon :name="isDishFavorited ? 'heart-filled' : 'heart-empty'" :size="22" :color="isDishFavorited ? '#FF4B33' : '#fff'" />
       </view>
@@ -226,11 +226,24 @@ async function addCart() {
   uni.showToast({ title: '已加入购物车', icon: 'success' })
 }
 function buyNow() {
-  addCart()
-  uni.navigateTo({ url: '/pages/order/checkout' })
+  const merchantId = dish.value.merchantId
+  const dishId = dish.value.id
+  if (!merchantId || !dishId) {
+    uni.showToast({ title: '商品信息不完整', icon: 'none' })
+    return
+  }
+  // 如果有规格，必须选择规格
+  if (specList.value.length > 0 && selectedSpecId.value == null) {
+    uni.showToast({ title: '请选择规格', icon: 'none' })
+    return
+  }
+  const specId = selectedSpecId.value || ''
+  const quantity = qty.value
+  const url = `/pages/order/checkout?buyNow=1&merchantId=${merchantId}&dishId=${dishId}&specId=${specId}&quantity=${quantity}&diningType=${cartStore.diningType}`
+  uni.navigateTo({ url })
 }
 function goCart() {
-  uni.switchTab({ url: '/pages/cart/index' })
+  uni.navigateTo({ url: '/pages/cart/index' })
 }
 </script>
 

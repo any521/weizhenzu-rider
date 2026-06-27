@@ -52,7 +52,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { createRefund } from '@/api'
+import { createRefund, uploadImage } from '@/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 
 const reasons = ref(['商家未接单', '配送超时', '商品质量问题', '错送/漏送', '其他原因'])
@@ -111,11 +111,21 @@ async function onSubmit() {
   submitting.value = true
   uni.showLoading({ title: '提交中...' })
   try {
+    // 上传图片到服务器，替换本地临时路径
+    const uploadedUrls: string[] = []
+    for (const img of images.value) {
+      if (img.startsWith('http://') || img.startsWith('https://')) {
+        uploadedUrls.push(img)
+      } else {
+        const upRes = await uploadImage(img)
+        uploadedUrls.push(upRes.url)
+      }
+    }
     const res: any = await createRefund({
       orderId: orderId.value,
       reason: reasonText,
       amount: Number(refundAmount.value),
-      images: images.value
+      images: uploadedUrls
     })
     uni.hideLoading()
     uni.showToast({ title: '已提交申请', icon: 'success' })

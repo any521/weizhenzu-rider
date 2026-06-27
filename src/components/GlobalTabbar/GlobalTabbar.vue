@@ -70,6 +70,12 @@ const visible = computed(() => tabPaths.has(tabStore.activeTab))
 
 function switchTab(tab: any) {
   if (tabStore.activeTab === tab.pagePath) return
+  // 购物车不是tabBar页面，使用navigateTo跳转
+  if (tab.pagePath === '/pages/cart/index') {
+    tabStore.setActiveTab(tab.pagePath)
+    uni.navigateTo({ url: tab.pagePath })
+    return
+  }
   tabStore.setActiveTab(tab.pagePath)
   uni.switchTab({ url: tab.pagePath })
 }

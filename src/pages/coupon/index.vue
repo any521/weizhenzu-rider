@@ -125,17 +125,53 @@ async function loadCoupons() {
     } else if (Array.isArray(res?.records)) {
       list = res.records
     }
-    coupons.value = list.map((c: any) => ({
-      id: c.id,
-      type: c.type === 2 ? 'discount' : 'amount',
-      value: c.type === 2 ? (c.discount ? c.discount * 10 : 0) : (c.amount || 0),
-      condition: c.threshold && c.threshold > 0 ? `满 ${c.threshold} 元可用` : '无门槛',
-      name: c.name || '优惠券',
-      desc: c.typeDesc || '',
-      expire: c.validEnd || '',
-      status: c.status === 1 ? 'unused' : c.status === 2 ? 'used' : 'expired',
-      bg: 'linear-gradient(135deg, #FF6B35 0%, #FF8C42 100%)'
-    }))
+    coupons.value = list.map((c: any) => {
+      // 安全解析日期（兼容 Safari：将 "2024-01-15 10:30:00" 转为 "2024-01-15T10:30:00"）
+      const parseDate = (s: string) => {
+        if (!s) return null
+        const t = s.replace(' ', 'T')
+        const d = new Date(t)
+        return isNaN(d.getTime()) ? null : d
+      }
+      const endDate = parseDate(c.validEnd)
+      // 前端二次确认：未使用但已过期的券，状态修正为过期
+      let mappedStatus: 'unused' | 'used' | 'expired'
+      const now = Date.now()
+      if (c.status === 0) {
+        // 后端 0 = 未使用，但需二次检查是否已过期（防止定时任务未及时更新）
+        if (endDate && endDate.getTime() < now) {
+          mappedStatus = 'expired'
+        } else {
+          mappedStatus = 'unused'
+        }
+      } else if (c.status === 1) {
+        mappedStatus = 'used'
+      } else {
+        mappedStatus = 'expired'
+      }
+      // 格式化到期时间：只显示到日期
+      let expireText = ''
+      if (endDate) {
+        const y = endDate.getFullYear()
+        const m = String(endDate.getMonth() + 1).padStart(2, '0')
+        const d = String(endDate.getDate()).padStart(2, '0')
+        expireText = `${y}.${m}.${d}`
+      }
+      return {
+        id: c.id,
+        couponId: c.couponId,
+        type: c.type === 2 ? 'discount' : 'amount',
+        value: c.type === 2 ? (c.discount ? c.discount * 10 : 0) : (c.amount || 0),
+        condition: c.threshold && c.threshold > 0 ? `满 ${c.threshold} 元可用` : '无门槛',
+        name: c.couponName || '优惠券',
+        desc: c.typeDesc || c.scopeDesc || '',
+        expire: expireText,
+        status: mappedStatus,
+        scope: c.scope, // 1全场 2指定商家 3指定类目
+        scopeIds: c.scopeIds || [],
+        bg: 'linear-gradient(135deg, #FF6B35 0%, #FF8C42 100%)'
+      }
+    })
   } catch (e) {
     console.error('加载优惠券失败', e)
     coupons.value = []
@@ -149,7 +185,22 @@ function leftBg(c: any) {
 }
 
 function useCoupon(c: any) {
-  uni.showToast({ title: `使用 ${c.name}`, icon: 'none' })
+  // scope: 1=全场通用 2=指定商家 3=指定类目
+  if (c.scope === 2 && c.scopeIds && c.scopeIds.length > 0) {
+    // 商家专属券，直接跳转到商家详情页
+    const merchantId = c.scopeIds[0]
+    uni.switchTab({
+      url: '/pages/index/index',
+      complete: () => {
+        setTimeout(() => {
+          uni.navigateTo({ url: `/pages/merchant/detail?id=${merchantId}` })
+        }, 100)
+      }
+    })
+  } else {
+    // 全场通用或指定类目，跳转到首页
+    uni.switchTab({ url: '/pages/index/index' })
+  }
 }
 
 function goHome() {

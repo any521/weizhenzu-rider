@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <view class="search-page">
     <!-- 顶部搜索栏 -->
-    <view class="search-header" :style="{ paddingTop: `calc(var(--status-bar-height, 20px) + 10px)` }">
+    <view class="search-header">
       <view class="back-btn" @tap="goBack">
         <view class="back-arrow" />
       </view>
@@ -37,16 +37,6 @@
         <text class="suggest-text">{{ s }}</text>
       </view>
     </view>
-
-    <!-- AI 助手入口 -->
-    <view class="ai-entry" @tap="askAi">
-      <view class="ai-badge">
-        <text class="ai-name">问小团</text>
-      </view>
-      <text class="ai-tip">想吃什么？直接问我</text>
-      <CategoryIcon name="search" :size="14" class="ai-arrow" />
-    </view>
-
     <!-- 搜索结果区域 -->
     <view v-if="keyword.trim()" class="result-area">
       <view class="result-tip">
@@ -175,10 +165,6 @@ function clearHistory() {
   })
 }
 
-function askAi() {
-  uni.showToast({ title: 'AI 助手正在赶来', icon: 'none' })
-}
-
 function goBack() {
   uni.navigateBack()
 }
@@ -283,43 +269,6 @@ function onInput() {
   color: #fff;
   font-weight: 500;
   padding: 0 4px;
-}
-
-/* AI 助手入口 */
-.ai-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 16px;
-  padding: 12px 14px;
-  background: $card;
-  border-radius: $radius-lg;
-  box-shadow: $shadow;
-}
-
-.ai-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 10px;
-  background: linear-gradient(135deg, $primary-light 0%, $primary 100%);
-  border-radius: 12px;
-}
-
-.ai-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: $text;
-}
-
-.ai-tip {
-  flex: 1;
-  font-size: 13px;
-  color: $text-light;
-}
-
-.ai-arrow {
-  color: $text-muted;
 }
 
 /* 默认内容区 */

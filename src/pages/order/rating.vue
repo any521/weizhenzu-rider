@@ -2,7 +2,15 @@
   <view class="rating-page">
     <!-- 商家信息 -->
     <view class="merchant-card" v-if="merchant">
-      <view class="merchant-logo" :style="{ background: merchant.bg }">
+      <SmartImage
+        v-if="merchant.imageUrl"
+        :src="merchant.imageUrl"
+        :bg="merchant.bg"
+        icon="shop"
+        :iconSize="22"
+        class="merchant-logo"
+      />
+      <view v-else class="merchant-logo" :style="{ background: merchant.bg }">
         <text class="logo-text">{{ merchant.logo }}</text>
       </view>
       <view class="merchant-name">{{ merchant.name }}</view>
@@ -79,7 +87,8 @@
 import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
-import { createReview, getMerchantDetail } from '@/api'
+import SmartImage from '@/components/SmartImage/SmartImage.vue'
+import { createReview, getMerchantDetail, uploadImage } from '@/api'
 import type { MerchantCardVO, MerchantVO } from '@/types/api'
 import { merchantVoToCard } from '@/utils/dataTransform'
 
@@ -153,6 +162,16 @@ async function onSubmit() {
   submitting.value = true
   uni.showLoading({ title: '提交中...' })
   try {
+    // 上传图片到服务器，替换本地临时路径
+    const uploadedUrls: string[] = []
+    for (const img of images.value) {
+      if (img.startsWith('http://') || img.startsWith('https://')) {
+        uploadedUrls.push(img)
+      } else {
+        const upRes = await uploadImage(img)
+        uploadedUrls.push(upRes.url)
+      }
+    }
     await createReview({
       orderId: orderId.value,
       rating: rating.value,
@@ -160,7 +179,7 @@ async function onSubmit() {
       packingScore: rating.value,
       deliveryScore: rating.value,
       content: content.value,
-      images: images.value,
+      images: uploadedUrls,
       tags: selectedTags.value,
       anonymous: anonymous.value ? 1 : 0
     })
@@ -182,7 +201,9 @@ async function onSubmit() {
 .rating-page {
   min-height: 100vh;
   background: $bg;
-  padding: 12px 16px 40px;
+  /* 顶部留出足够间距，避免 merchant-card 紧贴导航栏显得被遮挡；
+     底部留出提交按钮区域空间 */
+  padding: 20px 16px 40px;
 }
 
 .merchant-card {

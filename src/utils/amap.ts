@@ -1,13 +1,26 @@
+import { message } from './message'
+
 /**
  * 高德地图工具类
  * H5端通过动态script加载高德地图JS API
  * 非H5端使用uni原生能力
+ *
+ * 重要说明：
+ * 1. 2021年12月之后创建的高德key必须配合安全密钥(securityJsCode)使用
+ * 2. 或在高德开放平台控制台为该key配置"域名白名单"（如 localhost、127.0.0.1）
+ * 3. 否则会报 INVALID_USER_SCODE 错误
+ * 4. 控制台地址：https://console.amap.com/dev/key/app
  */
 
-const AMAP_KEY = '6c5dac8fc9af3ca41f8b49736264c10e'
-const AMAP_PLUGINS = 'AMap.Geolocation,AMap.Driving'
+// 高德Web端JS API key（与manifest.json中sdkConfigs.maps.amap.key保持一致）
+const AMAP_KEY = '8a7944b39971ba616fe55a9f85dffffa'
+// 高德地图 Web端 JS API 安全密钥
+// 获取方式：高德开放平台控制台 > 应用管理 > 我的申请 > 对应应用 > 安全密钥
+// 如果已在控制台为key配置了"域名白名单"（如 localhost），此处可留空字符串
+const AMAP_SECURITY_CODE = '7ace682b77e4a3e373591681eee518aa'
+const AMAP_PLUGINS = 'AMap.Geolocation,AMap.Driving,AMap.PlaceSearch,AMap.Geocoder,AMap.GeometryUtil'
 
-let amapLoadPromise: Promise<any> | null = null
+let amapLoadPromise: any = null
 
 /**
  * 动态加载高德地图 JS API（仅 H5 端）
@@ -28,6 +41,13 @@ export function loadAMap(): Promise<any> {
     if (typeof window !== 'undefined' && (window as any).AMap) {
       resolve((window as any).AMap)
       return
+    }
+
+    // 设置安全密钥（必须在加载AMap脚本之前设置）
+    if (AMAP_SECURITY_CODE && AMAP_SECURITY_CODE !== 'your_security_js_code_here') {
+      (window as any)._AMapSecurityConfig = {
+        securityJsCode: AMAP_SECURITY_CODE,
+      }
     }
 
     const script = document.createElement('script')
@@ -99,7 +119,7 @@ function haversineDistance(
   lng2: number,
   lat2: number
 ): number {
-  const EARTH_RADIUS = 6371000 // 地球半径（米）
+  const EARTH_RADIUS = 6371000
   const toRad = (d: number) => (d * Math.PI) / 180
   const dLat = toRad(lat2 - lat1)
   const dLng = toRad(lng2 - lng1)
@@ -115,10 +135,6 @@ function haversineDistance(
 
 /**
  * 打开原生地图导航（非H5端）
- * @param lng 经度
- * @param lat 纬度
- * @param name 地点名称
- * @param address 地址
  */
 export function openNavigation(
   lng: number,
@@ -127,13 +143,11 @@ export function openNavigation(
   address?: string
 ): void {
   // #ifdef H5
-  if (typeof window !== 'undefined' && (window as any).AMap) {
-    // H5 端跳转到高德地图 Web 导航
+  if (typeof window !== 'undefined') {
     const url = `https://uri.amap.com/navigation?to=${lng},${lat},${encodeURIComponent(name || '目的地')}&mode=car&policy=1&src=weizhenzu&coordinate=gaode&callnative=1`
     window.open(url, '_blank')
     return
   }
-  // H5 端未加载AMap时降级使用uni.openLocation（部分H5浏览器支持）
   // #endif
 
   uni.openLocation({
@@ -144,7 +158,7 @@ export function openNavigation(
     scale: 16,
     fail: (err: any) => {
       console.error('打开地图失败:', err)
-      uni.showToast({ title: '无法打开地图', icon: 'none' })
+      message.error('无法打开地图')
     },
   })
 }

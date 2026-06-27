@@ -72,6 +72,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import { getOrderDelivery } from '@/api'
 import { loadAMap, calculateDistance, formatDistance as fmtDist } from '@/utils/amap'
+import { message } from '@/utils/message'
 import type { WSMessage } from '@/utils/websocket'
 
 // ==================== 状态 ====================
@@ -380,13 +381,43 @@ function startPolling() {
 async function initAMap() {
   try {
     const AMap = await loadAMap()
-    const container = document.getElementById('amap-container')
-    if (!container) {
-      console.warn('地图容器不存在')
+    // uni-app H5 下 <view id="amap-container"> 渲染为 <uni-view> 自定义元素，
+    // 高德 SDK 内部会查找原生 <div> 子元素，直接传 <uni-view> 会报 "Map container div not exist"。
+    // 这里获取挂载点后，确保内部有一个带明确尺寸的原生 <div> 作为实际地图容器。
+    const mountEl = document.getElementById('amap-container') as HTMLElement | null
+    if (!mountEl) {
+      console.warn('[地图] 挂载点 #amap-container 不存在，稍后重试')
+      // DOM 尚未就绪，延迟重试
+      setTimeout(initAMap, 200)
       return
     }
 
-    amapInstance = new AMap.Map(container, {
+    // 强制 uni-view 为块级元素，否则 inline 元素的尺寸不生效
+    mountEl.style.display = 'block'
+
+    // 复用或创建内部原生 div
+    let innerDiv = mountEl.querySelector('.amap-inner') as HTMLElement | null
+    if (!innerDiv) {
+      innerDiv = document.createElement('div')
+      innerDiv.className = 'amap-inner'
+      mountEl.appendChild(innerDiv)
+    }
+
+    // 用固定像素尺寸，避免 height:100% 在父元素 height:auto 时失效
+    let h = mountEl.offsetHeight || mountEl.clientHeight || 0
+    let w = mountEl.offsetWidth || mountEl.clientWidth || 0
+    if (h < 200) h = window.innerHeight || 360
+    if (w < 100) w = window.innerWidth || 320
+    innerDiv.style.width = w + 'px'
+    innerDiv.style.height = h + 'px'
+
+    if (amapInstance) {
+      // 已有实例，仅更新尺寸和中心
+      try { amapInstance.setCenter(new AMap.LngLat(116.397428, 39.90923)) } catch (e) { /* ignore */ }
+      return
+    }
+
+    amapInstance = new AMap.Map(innerDiv, {
       zoom: 15,
       center: new AMap.LngLat(116.397428, 39.90923),
       resizeEnable: true
@@ -463,7 +494,7 @@ function fitMapView() {
 function callRider() {
   const phone = rider.value.virtualPhone || rider.value.phone
   if (!phone) {
-    uni.showToast({ title: '暂无骑手联系方式', icon: 'none' })
+    message.warning('暂无骑手联系方式')
     return
   }
   uni.showModal({

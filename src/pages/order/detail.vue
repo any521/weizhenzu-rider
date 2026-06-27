@@ -7,6 +7,24 @@
       <view class="status-sub">{{ statusInfo.sub }}</view>
     </view>
 
+    <!-- 配送地图（配送中状态显示） -->
+    <view v-if="showMap && tracking" class="map-card">
+      <map
+        id="deliveryMap"
+        class="delivery-map"
+        :longitude="mapCenter.lng"
+        :latitude="mapCenter.lat"
+        :scale="15"
+        :markers="mapMarkers"
+        :polyline="mapPolyline"
+        :show-location="false"
+      ></map>
+      <view class="map-distance">
+        <text class="distance-label">{{ distanceLabel }}</text>
+        <text class="distance-value">{{ distanceText }}</text>
+      </view>
+    </view>
+
     <!-- 配送进度条（配送相关状态显示） -->
     <view v-if="showDeliveryProgress" class="progress-card">
       <view class="progress-track">
@@ -32,8 +50,11 @@
         <CategoryIcon name="avatar" :size="36" />
       </view>
       <view class="rider-info">
-        <view class="rider-name">{{ rider.name }}</view>
-        <view class="rider-meta">{{ rider.level }} · 配送中</view>
+        <view class="rider-name">{{ rider.name || tracking?.rider?.name || '骑手' }}</view>
+        <view class="rider-meta">
+          <text v-if="rider.rating" class="rider-rating">⭐ {{ Number(rider.rating).toFixed(1) }}</text>
+          <text v-if="tracking?.distance" class="rider-distance"> · {{ distanceText }}</text>
+        </view>
       </view>
       <view class="rider-actions">
         <view class="rider-btn" @tap="callRider">
@@ -83,8 +104,11 @@
         <view class="item-price">¥{{ it.price.toFixed(2) }} × {{ it.qty }}</view>
       </view>
       <view class="summary-row"><text>商品金额</text><text>¥{{ order.goodsAmount.toFixed(2) }}</text></view>
-      <view class="summary-row"><text>配送费</text><text>¥{{ order.deliveryFee.toFixed(2) }}</text></view>
-      <view class="summary-row"><text>满减优惠</text><text style="color: $success;">-¥{{ order.discount.toFixed(2) }}</text></view>
+      <view v-if="order.packingFee > 0" class="summary-row"><text>打包费</text><text>¥{{ order.packingFee.toFixed(2) }}</text></view>
+      <view v-if="order.diningType === 2" class="summary-row"><text>配送费</text><text>¥{{ order.deliveryFee.toFixed(2) }}</text></view>
+      <view v-else-if="order.diningType === 1" class="summary-row"><text>配送费</text><text style="color: #00C853;">堂食免配送费</text></view>
+      <view v-else class="summary-row"><text>配送费</text><text style="color: #00C853;">自取免配送费</text></view>
+      <view v-if="order.discount > 0" class="summary-row"><text>优惠</text><text style="color: #00C853;">-¥{{ order.discount.toFixed(2) }}</text></view>
       <view class="summary-row total">
         <text>实付</text>
         <text class="price">¥{{ order.payable.toFixed(2) }}</text>
@@ -115,26 +139,39 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, computed, onUnmounted } from 'vue'
+import { onLoad, onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import { getOrderDetail, getOrderDelivery, cancelOrder, confirmReceive, cancelRefund } from '@/api'
 import type { OrderVO } from '@/types/api'
+import { message } from '@/utils/message'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import SmartImage from '@/components/SmartImage/SmartImage.vue'
+import { ORDER_STATUS_MAP, formatDistance } from '@/utils/format'
 
 const rawOrder = ref<OrderVO | null>(null)
-const rider = ref<any>(null)
+// rider 初始化为空对象，避免模板访问 rider.rating / rider.name 时 null 报错
+const rider = ref<any>({})
+const tracking = ref<any>(null)
 const loading = ref(false)
+/** 位置刷新定时器 */
+let locationTimer: ReturnType<typeof setInterval> | null = null
 
-const deliverySteps = ['已下单', '商家接单', '骑手取餐', '配送中', '已送达']
+// 新的配送步骤（7步）：已下单→商家接单→骑手已接单→骑手到店→配送中→已送达→已完成
+const deliverySteps = ['已下单', '商家接单', '骑手已接单', '骑手到店', '配送中', '已送达', '已完成']
 
 const statusMap: Record<number, { type: string; icon: string; sub: string }> = {
-  0: { type: 'warning', icon: 'pay', sub: '请在30分钟内完成支付' },
-  1: { type: 'warning', icon: 'shop', sub: '商家接单中，请耐心等待' },
-  5: { type: 'primary', icon: 'package', sub: '骑手正在配送中' },
-  6: { type: 'success', icon: 'check', sub: '订单已送达，期待您的评价' },
-  7: { type: 'success', icon: 'check', sub: '感谢您的信任，期待再次光临' },
-  9: { type: 'warning', icon: 'refund', sub: '退款申请处理中，请耐心等待' }
+  0:  { type: 'warning', icon: 'pay',       sub: '请在30分钟内完成支付' },
+  1:  { type: 'warning', icon: 'shop',      sub: '商家接单中，请耐心等待' },
+  2:  { type: 'warning', icon: 'cooking',   sub: '商家正在备餐中，请耐心等待' },
+  3:  { type: 'primary', icon: 'bike',      sub: '骑手已接单，正在赶来' },
+  4:  { type: 'warning', icon: 'cooking',   sub: '商家正在备餐中，请耐心等待' },
+  5:  { type: 'primary', icon: 'package',   sub: '骑手正在配送中' },
+  6:  { type: 'success', icon: 'check',     sub: '订单已送达，期待您的评价' },
+  7:  { type: 'success', icon: 'check',     sub: '感谢您的信任，期待再次光临' },
+  8:  { type: 'muted',   icon: 'close',     sub: '订单已取消' },
+  9:  { type: 'warning', icon: 'refund',    sub: '退款申请处理中，请耐心等待' },
+  10: { type: 'muted',   icon: 'refund',    sub: '退款已完成' },
+  11: { type: 'primary', icon: 'location',  sub: '骑手已到店，正在取餐' },
 }
 
 const payTypeMap: Record<number, string> = {
@@ -169,7 +206,9 @@ const order = computed(() => {
       merchant: { name: '', icon: '' },
       items: [] as any[],
       goodsAmount: 0,
+      packingFee: 0,
       deliveryFee: 0,
+      diningType: 2,
       discount: 0,
       payable: 0,
       orderNo: '',
@@ -189,7 +228,7 @@ const order = computed(() => {
   ]
   return {
     id: raw.id,
-    status: raw.statusDesc || (status === 0 ? '待付款' : status === 1 ? '待接单' : status === 5 ? '配送中' : status === 6 ? '已送达' : '已完成'),
+    status: raw.statusDesc || ORDER_STATUS_MAP[status]?.text || '已完成',
     statusCode: status,
     deliveryTime: status === 6 || status === 7 ? `${raw.receiveTime || ''} 已送达` : raw.expectedTime || '',
     riderName: raw.riderName || '',
@@ -201,14 +240,19 @@ const order = computed(() => {
     items: (raw.items || []).map((it, idx) => ({
       name: it.dishName || '商品',
       spec: it.specName || '',
-      price: it.price || 0,
+      price: it.unitPrice || it.price || 0,
       qty: it.quantity || 0,
-      bg: dishBgList[(it.dishId || idx) % dishBgList.length],
+      bg: dishBgList[Number(it.dishId || idx) % dishBgList.length],
       imageUrl: it.dishImage && isImageUrl(it.dishImage) ? it.dishImage : ''
     })),
-    goodsAmount: raw.goodsAmount || 0,
-    deliveryFee: raw.deliveryFee || 0,
-    discount: raw.discountAmount || 0,
+    goodsAmount: raw.totalAmount || raw.goodsAmount || 0,
+    packingFee: raw.packingFee || 0,
+    deliveryFee: (raw.diningType === 1 || raw.diningType === 3) ? 0 : (raw.deliveryFee || 0),
+    diningType: raw.diningType || 2,
+    // 优惠金额 = 商家优惠 + 平台优惠 + 优惠券（三者之和）
+    discount: (Number(raw.merchantDiscount) || 0)
+      + (Number(raw.platformDiscount) || 0)
+      + (Number(raw.couponAmount) || 0),
     payable: raw.payAmount || 0,
     orderNo: raw.orderNo || '',
     orderTime: raw.createdAt || '',
@@ -223,13 +267,151 @@ const statusInfo = computed(() => {
   return statusMap[order.value.statusCode] || { type: 'success', icon: 'check', sub: '订单已完成' }
 })
 
-const showDeliveryProgress = computed(() => [1, 5, 6, 7, 9].includes(order.value.statusCode))
+const showDeliveryProgress = computed(() => [1, 2, 3, 4, 5, 6, 7, 9, 11].includes(order.value.statusCode))
 const activeDeliveryStep = computed(() => {
-  const map: Record<number, number> = { 1: 1, 5: 3, 6: 4, 7: 4, 9: 0 }
+  const map: Record<number, number> = {
+    0: 0, 1: 0, 2: 1, 3: 2, 4: 1, 5: 4, 6: 5, 7: 6, 9: 0, 11: 3,
+  }
   return map[order.value.statusCode] ?? 0
 })
 const deliveryProgress = computed(() => (activeDeliveryStep.value / (deliverySteps.length - 1)) * 100)
-const showRider = computed(() => [5, 6, 7].includes(order.value.statusCode))
+const showRider = computed(() => [3, 5, 6, 7, 11].includes(order.value.statusCode))
+
+/** 是否显示地图（骑手已接单、到店、配送中状态） */
+const showMap = computed(() => {
+  return [3, 5, 11].includes(order.value.statusCode) && tracking.value
+})
+
+/** 地图中心点 */
+const mapCenter = computed(() => {
+  const t = tracking.value
+  if (!t) return { lng: 116.397, lat: 39.909 }
+  // 配送中以骑手位置为中心，否则以商家和用户中间点为中心
+  if (t.riderLng && t.riderLat && order.value.statusCode === 5) {
+    return { lng: Number(t.riderLng), lat: Number(t.riderLat) }
+  }
+  if (t.merchantLng && t.merchantLat) {
+    return { lng: Number(t.merchantLng), lat: Number(t.merchantLat) }
+  }
+  return { lng: 116.397, lat: 39.909 }
+})
+
+/** 地图标记点 */
+const mapMarkers = computed(() => {
+  const markers: any[] = []
+  const t = tracking.value
+  if (!t) return markers
+
+  // 商家标记
+  if (t.merchantLng && t.merchantLat) {
+    markers.push({
+      id: 1,
+      longitude: Number(t.merchantLng),
+      latitude: Number(t.merchantLat),
+      iconPath: '/static/map/shop.png',
+      width: 32,
+      height: 32,
+      callout: {
+        content: t.merchant?.name || '商家',
+        color: '#333',
+        fontSize: 12,
+        borderRadius: 6,
+        bgColor: '#fff',
+        padding: 6,
+        display: 'ALWAYS',
+      }
+    })
+  }
+
+  // 用户收货地址标记
+  if (t.userLng && t.userLat) {
+    markers.push({
+      id: 2,
+      longitude: Number(t.userLng),
+      latitude: Number(t.userLat),
+      iconPath: '/static/map/user.png',
+      width: 32,
+      height: 32,
+      callout: {
+        content: '收货地址',
+        color: '#333',
+        fontSize: 12,
+        borderRadius: 6,
+        bgColor: '#fff',
+        padding: 6,
+        display: 'ALWAYS',
+      }
+    })
+  }
+
+  // 骑手标记
+  if (t.riderLng && t.riderLat) {
+    markers.push({
+      id: 3,
+      longitude: Number(t.riderLng),
+      latitude: Number(t.riderLat),
+      iconPath: '/static/map/rider.png',
+      width: 36,
+      height: 36,
+      callout: {
+        content: t.rider?.name || '骑手',
+        color: '#fff',
+        fontSize: 12,
+        borderRadius: 6,
+        bgColor: '#FF6B35',
+        padding: 6,
+        display: 'ALWAYS',
+      }
+    })
+  }
+
+  return markers
+})
+
+/** 地图路线（骑手到目标点的连线） */
+const mapPolyline = computed(() => {
+  const t = tracking.value
+  if (!t) return []
+  const points: any[] = []
+
+  if (t.riderLng && t.riderLat) {
+    points.push({ longitude: Number(t.riderLng), latitude: Number(t.riderLat) })
+  }
+
+  // 根据配送阶段决定目标点
+  const target = t.navigationTarget === 'user'
+    ? (t.userLng && t.userLat ? { lng: t.userLng, lat: t.userLat } : null)
+    : (t.merchantLng && t.merchantLat ? { lng: t.merchantLng, lat: t.merchantLat } : null)
+
+  if (target) {
+    points.push({ longitude: Number(target.lng), latitude: Number(target.lat) })
+  }
+
+  if (points.length < 2) return []
+
+  return [{
+    points,
+    color: '#FF6B35',
+    width: 4,
+    dottedLine: false,
+    arrowLine: true,
+  }]
+})
+
+/** 距离标签 */
+const distanceLabel = computed(() => {
+  const t = tracking.value
+  if (!t) return ''
+  if (t.navigationTarget === 'user') return '距您'
+  return '距商家'
+})
+
+/** 距离文本 */
+const distanceText = computed(() => {
+  const t = tracking.value
+  if (!t?.distance) return '计算中...'
+  return formatDistance(t.distance)
+})
 
 const statusActions = computed(() => {
   const code = order.value.statusCode
@@ -237,18 +419,24 @@ const statusActions = computed(() => {
     { text: '取消订单', primary: false },
     { text: '去支付', primary: true }
   ]
-  if (code === 1) return [
+  if (code === 1 || code === 2 || code === 4) return [
     { text: '申请退款', primary: false },
     { text: '催单', primary: true }
+  ]
+  if (code === 3 || code === 11) return [
+    { text: '查看配送', primary: false },
+    { text: '联系骑手', primary: true }
   ]
   if (code === 5) return [
     { text: '查看配送', primary: false },
     { text: '联系骑手', primary: true }
   ]
-  if (code === 6) return [
-    { text: '评价', primary: false },
-    { text: '确认收货', primary: true }
-  ]
+  if (code === 6) {
+    const isRated = order.value.raw?.isRated === 1
+    return isRated
+      ? [{ text: '确认收货', primary: true }]
+      : [{ text: '评价', primary: false }, { text: '确认收货', primary: true }]
+  }
   if (code === 7) {
     const isRated = order.value.raw?.isRated === 1
     return isRated
@@ -279,23 +467,82 @@ onLoad((q: any) => {
   }
 })
 
+onShow(() => {
+  // 页面显示时刷新当前订单详情（兜底 WS 漏推送）
+  if (rawOrder.value?.id) {
+    fetchOrderDetail(rawOrder.value.id)
+  }
+  uni.$on('orderStatusChanged', onOrderStatusChanged)
+})
+
+onHide(() => {
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+onUnload(() => {
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+/** WebSocket 推送的订单状态变更回调，刷新当前订单详情 */
+function onOrderStatusChanged(_msg: any) {
+  if (rawOrder.value?.id) {
+    fetchOrderDetail(rawOrder.value.id)
+  }
+}
+
+onUnmounted(() => {
+  stopLocationRefresh()
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+/**
+ * 开始定时刷新骑手位置
+ */
+function startLocationRefresh(orderId: string | number) {
+  stopLocationRefresh()
+  // 立即刷新一次
+  refreshTracking(orderId)
+  // 每15秒刷新一次
+  locationTimer = setInterval(() => {
+    refreshTracking(orderId)
+  }, 15000)
+}
+
+/**
+ * 停止定时刷新
+ */
+function stopLocationRefresh() {
+  if (locationTimer) {
+    clearInterval(locationTimer)
+    locationTimer = null
+  }
+}
+
+/**
+ * 刷新配送追踪信息
+ */
+async function refreshTracking(orderId: string | number) {
+  try {
+    const delivery = await getOrderDelivery(orderId)
+    tracking.value = delivery
+    if (delivery?.rider) {
+      rider.value = delivery.rider
+    }
+  } catch {
+    // 忽略
+  }
+}
+
 async function fetchOrderDetail(id: string | number) {
   loading.value = true
   try {
     rawOrder.value = await getOrderDetail(id)
-    // 加载骑手信息（由 getOrderDelivery 接口返回）
-    if ([5, 6, 7].includes(rawOrder.value?.status ?? -1)) {
-      try {
-        const delivery = await getOrderDelivery(id)
-        if (delivery?.rider) {
-          rider.value = delivery.rider
-        }
-      } catch {
-        // 忽略骑手信息加载失败
-      }
+    // 加载骑手信息（骑手已接单后开始展示）
+    if ([3, 5, 6, 7, 11].includes(rawOrder.value?.status ?? -1)) {
+      startLocationRefresh(id)
     }
   } catch (e: any) {
-    uni.showToast({ title: e?.message || '加载失败', icon: 'none' })
+    message.error(e?.message || '加载失败')
   } finally {
     loading.value = false
   }
@@ -304,14 +551,32 @@ async function fetchOrderDetail(id: string | number) {
 function copyOrderNo() {
   uni.setClipboardData({
     data: order.value.orderNo,
-    success: () => uni.showToast({ title: '已复制', icon: 'success' })
+    success: () => message.success('已复制')
   })
 }
 
-function callRider() {
-  const phone = order.value.raw?.riderPhone || rider.value?.virtualPhone
+async function callRider() {
+  let phone = order.value.raw?.riderPhone || rider.value?.phone || tracking.value?.rider?.phone
   if (!phone) {
-    return uni.showToast({ title: '暂无骑手联系方式', icon: 'none' })
+    // 主动从配送跟踪接口获取骑手电话
+    try {
+      uni.showLoading({ title: '获取中' })
+      const delivery = await getOrderDelivery(order.value.id)
+      uni.hideLoading()
+      phone = delivery?.rider?.phone
+      if (phone) {
+        // 缓存骑手信息
+        if (delivery?.rider) {
+          rider.value = delivery.rider
+        }
+        tracking.value = delivery
+      }
+    } catch (e) {
+      uni.hideLoading()
+    }
+  }
+  if (!phone) {
+    return message.warning('暂无骑手联系方式')
   }
   uni.showModal({
     title: '联系骑手',
@@ -330,20 +595,22 @@ function goDelivery() {
 async function doCancelOrder() {
   try {
     await cancelOrder(order.value.id, '用户主动取消')
-    uni.showToast({ title: '已取消', icon: 'success' })
+    message.success('已取消')
+    stopLocationRefresh()
     if (rawOrder.value) rawOrder.value.status = 8
   } catch (e: any) {
-    uni.showToast({ title: e?.message || '取消失败', icon: 'none' })
+    message.error(e?.message || '取消失败')
   }
 }
 
 async function doConfirmReceive() {
   try {
     await confirmReceive(order.value.id)
-    uni.showToast({ title: '已确认收货', icon: 'success' })
+    message.success('已确认收货')
+    stopLocationRefresh()
     if (rawOrder.value) rawOrder.value.status = 7
   } catch (e: any) {
-    uni.showToast({ title: e?.message || '确认失败', icon: 'none' })
+    message.error(e?.message || '确认失败')
   }
 }
 
@@ -362,10 +629,10 @@ function onAction(btn: { text: string; primary: boolean }) {
         if (r.confirm) {
           try {
             await cancelRefund(order.value.id)
-            uni.showToast({ title: '已撤销', icon: 'success' })
+            message.success('已撤销')
             if (rawOrder.value) rawOrder.value.status = 1
           } catch (e: any) {
-            uni.showToast({ title: e?.message || '撤销失败', icon: 'none' })
+            message.error(e?.message || '撤销失败')
           }
         }
       }
@@ -394,13 +661,15 @@ function onAction(btn: { text: string; primary: boolean }) {
       content: '确定删除该订单？',
       success: (r) => {
         if (r.confirm) {
-          uni.showToast({ title: '已删除', icon: 'success' })
+          message.success('已删除')
           setTimeout(() => uni.navigateBack(), 600)
         }
       }
     })
+  } else if (btn.text === '催单') {
+    message.success('已催促商家尽快处理')
   } else {
-    uni.showToast({ title: btn.text, icon: 'none' })
+    message.info(btn.text)
   }
 }
 </script>
@@ -424,6 +693,7 @@ function onAction(btn: { text: string; primary: boolean }) {
 .status-warning { background: linear-gradient(135deg, $warning, #FFB74D); }
 .status-primary { background: linear-gradient(135deg, $primary, $primary-light); }
 .status-success { background: linear-gradient(180deg, #fff 0%, $bg 100%); color: $text; }
+.status-muted { background: linear-gradient(135deg, #999, #bbb); }
 
 .status-icon {
   width: 72px;
@@ -457,6 +727,45 @@ function onAction(btn: { text: string; primary: boolean }) {
 }
 
 .status-success .status-sub { color: $text-muted; }
+
+/* 配送地图 */
+.map-card {
+  position: relative;
+  margin: 0 16px 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: $shadow;
+}
+
+.delivery-map {
+  width: 100%;
+  height: 220px;
+}
+
+.map-distance {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.distance-label {
+  font-size: 11px;
+  color: $text-muted;
+}
+
+.distance-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: $primary;
+  margin-top: 2px;
+}
 
 .progress-card {
   background: #fff;
@@ -655,13 +964,6 @@ function onAction(btn: { text: string; primary: boolean }) {
   border-radius: 6px;
   flex-shrink: 0;
   overflow: hidden;
-}
-
-.item-img {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-  flex-shrink: 0;
 }
 
 .item-info {

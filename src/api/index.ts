@@ -17,6 +17,7 @@ import type {
   RecommendDishVO,
   CartVO,
   CartItemVO,
+  CartGroupVO,
   OrderVO,
   OrderCreateVO,
   PaymentVO,
@@ -113,7 +114,7 @@ export const getAddressList = async (): Promise<AddressVO[]> => {
   return addressListDtoToVo(list)
 }
 
-export const getAddressDetail = async (id: number): Promise<AddressVO> => {
+export const getAddressDetail = async (id: number | string): Promise<AddressVO> => {
   const dto = await get<AddressDTO>(`/api/user/addresses/${id}`)
   return addressDtoToVo(dto)
 }
@@ -130,12 +131,12 @@ export const getDefaultAddress = async (): Promise<AddressVO | null> => {
 export const addAddress = (data: Partial<AddressVO>) =>
   post('/api/user/addresses', addressVoToDto(data))
 
-export const updateAddress = (id: number, data: Partial<AddressVO>) =>
+export const updateAddress = (id: number | string, data: Partial<AddressVO>) =>
   put(`/api/user/addresses/${id}`, addressVoToDto(data))
 
-export const deleteAddress = (id: number) => del(`/api/user/addresses/${id}`)
+export const deleteAddress = (id: number | string) => del(`/api/user/addresses/${id}`)
 
-export const setDefaultAddress = (id: number) => put(`/api/user/addresses/${id}/default`)
+export const setDefaultAddress = (id: number | string) => put(`/api/user/addresses/${id}/default`)
 
 // ==================== 商家 ====================
 export const getMerchantCategories = () => get<MerchantCategoryVO[]>('/api/user/merchants/categories')
@@ -145,8 +146,12 @@ export interface MerchantPageParams {
   size?: number
   categoryId?: number | string
   keyword?: string
-  /** 配送类型: 1=外卖, 2=自取 */
-  deliveryType?: number
+  /** 用餐类型: 2=外卖, 3=自取（对应后端diningType: 1=堂食, 2=外卖, 3=自取） */
+  diningType?: number
+  /** 用户经度（用于距离计算） */
+  lng?: number
+  /** 用户纬度（用于距离计算） */
+  lat?: number
 }
 
 export const getMerchantPage = async (params: MerchantPageParams): Promise<PageResult<MerchantCardVO>> => {
@@ -155,21 +160,39 @@ export const getMerchantPage = async (params: MerchantPageParams): Promise<PageR
   return { ...page, list: merchantListVoToCard(page.list) }
 }
 
-export const getMerchantDetail = (id: number | string) => get<MerchantVO>(`/api/user/merchants/${id}`)
+export const getMerchantDetail = (id: number | string, lng?: number, lat?: number) =>
+  get<MerchantVO>(`/api/user/merchants/${id}`, { lng, lat })
 
 export const getMerchantMenu = (id: number | string) => get<DishCategoryVO[]>(`/api/user/merchants/${id}/menu`)
 
-export const getMerchantReviews = async (merchantId: number, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
+export const getMerchantReviews = async (merchantId: number | string, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
   const backend = await get<PageResultBackend<ReviewVO>>(`/api/user/merchants/${merchantId}/reviews`, params)
   return pageBackendToFrontend(backend)
 }
 
 // ==================== 菜品 ====================
-export const getDishDetail = (id: number) => get<DishVO>(`/api/user/dishes/${id}`)
+export const getDishPage = async (params: { current?: number; size?: number; platformCategoryId?: number | string; keyword?: string }): Promise<PageResult<DishVO>> => {
+  const backend = await get<PageResultBackend<DishVO>>('/api/user/dishes', params)
+  return pageBackendToFrontend(backend)
+}
+
+export interface FeaturedDishesParams {
+  limit?: number
+  /** 用餐类型: 2=外卖, 3=自取 */
+  diningType?: number
+}
+
+export const getFeaturedDishes = (params: FeaturedDishesParams | number = {}) => {
+  // 兼容旧的调用方式：getFeaturedDishes(5) 传入数字作为limit
+  const queryParams = typeof params === 'number' ? { limit: params } : params
+  return get<DishVO[]>('/api/user/dishes/featured', queryParams)
+}
+
+export const getDishDetail = (id: number | string) => get<DishVO>(`/api/user/dishes/${id}`)
 
 export const getRecommendDishes = (size = 8) => get<RecommendDishVO[]>('/api/user/recommend/dishes', { size })
 
-export const getDishReviews = async (dishId: number, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
+export const getDishReviews = async (dishId: number | string, params?: { current?: number; size?: number }): Promise<PageResult<ReviewVO>> => {
   const backend = await get<PageResultBackend<ReviewVO>>(`/api/user/dishes/${dishId}/reviews`, params)
   return pageBackendToFrontend(backend)
 }
@@ -178,9 +201,9 @@ export const getDishReviews = async (dishId: number, params?: { current?: number
 export const getCart = () => get<CartVO>('/api/user/cart')
 
 export interface CartAddPayload {
-  merchantId: number
-  dishId: number
-  specId?: number
+  merchantId: number | string
+  dishId: number | string
+  specId?: number | string | null
   quantity: number
 }
 
@@ -190,24 +213,49 @@ export interface CartUpdatePayload {
   quantity: number
 }
 
-export const updateCartItem = (id: number, data: CartUpdatePayload) => put(`/api/user/cart/${id}`, data)
+export const updateCartItem = (id: number | string, data: CartUpdatePayload) => put(`/api/user/cart/${id}`, data)
 
-export const removeCartItem = (id: number) => del(`/api/user/cart/${id}`)
+export const removeCartItem = (id: number | string) => del(`/api/user/cart/${id}`)
 
 export const clearCart = () => del('/api/user/cart')
 
 // ==================== 订单 ====================
 export interface OrderCreatePayload {
-  merchantId: number
-  addressId: number
-  items: { dishId: number; specId?: number; quantity: number }[]
-  userCouponId?: number
+  merchantId: number | string
+  addressId: number | string
+  items: { dishId: number | string; specId?: number | string | null; quantity: number }[]
+  userCouponId?: number | string
   remark?: string
   clientToken: string
+  diningType?: number
 }
 
 export const createOrder = (data: OrderCreatePayload) =>
   post<OrderCreateVO>('/api/user/orders', data, { showLoading: true, loadingText: '提交中' })
+
+// 订单预览：按地址计算真实金额（含超距配送费、打包费），不创建订单
+export interface OrderPreviewPayload {
+  merchantId: number | string
+  addressId: number | string
+  items: { dishId: number | string; specId?: number | string | null; quantity: number }[]
+  userCouponId?: number | string
+  diningType?: number
+}
+
+export interface OrderPreviewVO {
+  merchantId: number | string
+  totalAmount: number
+  packingFee: number
+  deliveryFee: number
+  couponAmount: number
+  payAmount: number
+  diningType: number
+  reachMinAmount: boolean
+  minOrderAmount: number
+}
+
+export const previewOrder = (data: OrderPreviewPayload) =>
+  post<OrderPreviewVO>('/api/user/orders/preview', data)
 
 export const getOrderPage = async (params?: { status?: number; current?: number; size?: number }): Promise<PageResult<OrderVO>> => {
   const backend = await get<PageResultBackend<OrderVO>>('/api/user/orders', params)
@@ -278,9 +326,19 @@ export const getMyReviews = async (params?: { current?: number; size?: number })
 // ==================== 优惠券 ====================
 export const getAvailableCoupons = (): Promise<CouponVO[]> => get<CouponVO[]>('/api/user/coupons/available')
 
+export interface UsableCouponParams {
+  merchantId?: number | string
+  orderAmount?: number
+}
+
+export const getMyUsableCoupons = (params?: UsableCouponParams): Promise<any[]> =>
+  get<any[]>('/api/user/coupons/usable', params)
+
 export const getMyCoupons = (status?: number) => get('/api/user/coupons', status !== undefined ? { status } : {})
 
-export const receiveCoupon = (id: number) => post(`/api/user/coupons/${id}/receive`)
+export const getMerchantCoupons = (merchantId: number | string) => get<CouponVO[]>(`/api/user/coupons/merchant/${merchantId}`)
+
+export const receiveCoupon = (id: number | string) => post(`/api/user/coupons/${id}/receive`)
 
 // ==================== 收藏 ====================
 export const getFavorites = async (params?: { current?: number; size?: number }): Promise<PageResult<MerchantCardVO>> => {
@@ -298,9 +356,9 @@ export const isFavorite = (merchantId: number | string) => get<boolean>(`/api/us
 // ==================== 消息 ====================
 export const getMessageList = (params: any) => get('/api/user/messages', params)
 
-export const markMessageRead = (id: number) => put(`/api/user/messages/${id}/read`)
+export const markMessageRead = (id: number | string) => put(`/api/user/messages/${id}/read`)
 
 export const markAllMessagesRead = () => put('/api/user/messages/read-all')
 
 // ==================== 导出类型别名（兼容旧代码） ====================
-export type { CartItemVO }
+export type { CartItemVO, CartGroupVO }

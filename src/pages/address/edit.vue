@@ -9,7 +9,19 @@
         <text class="label">手机号</text>
         <input v-model="form.phone" type="number" maxlength="11" placeholder="请输入手机号" placeholder-class="placeholder" />
       </view>
-      <!-- 省市区选择器：使用多列picker确保全平台兼容 -->
+      <!-- 地图选点 -->
+      <view class="form-item location-item" @tap="chooseLocation">
+        <text class="label">选择位置</text>
+        <view class="location-info">
+          <text v-if="locating" class="locating-text">打开地图中...</text>
+          <text v-else-if="form.address && form.longitude && form.latitude" class="loc-success">
+            📍 {{ form.region }} {{ form.address }}
+          </text>
+          <text v-else class="loc-placeholder">点击打开地图选择收货地址</text>
+        </view>
+        <text class="location-btn">地图选点</text>
+      </view>
+      <!-- 省市区选择器（地图选点后自动填充，也可手动修改） -->
       <picker
         mode="multiSelector"
         :value="multiIndex"
@@ -26,6 +38,11 @@
       <view class="form-item">
         <text class="label">详细地址</text>
         <input v-model="form.address" placeholder="街道、楼栋、门牌号等" placeholder-class="placeholder" />
+      </view>
+      <!-- 坐标显示 -->
+      <view v-if="form.longitude && form.latitude" class="form-item coord-item">
+        <text class="label">坐标</text>
+        <text class="coord-text">{{ Number(form.longitude).toFixed(6) }}, {{ Number(form.latitude).toFixed(6) }}</text>
       </view>
       <view class="form-item">
         <text class="label">地址标签</text>
@@ -53,7 +70,7 @@
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getAddressDetail, addAddress, updateAddress } from '@/api'
-import { getRegionColumns } from '@/data/regions.js'
+import { getRegionColumns, findRegionByAddress } from '@/data/regions.js'
 import type { AddressVO } from '@/types/api'
 
 const form = reactive<Partial<AddressVO>>({
@@ -62,11 +79,14 @@ const form = reactive<Partial<AddressVO>>({
   phone: '',
   region: '',
   address: '',
+  longitude: undefined,
+  latitude: undefined,
   tag: '家',
   default: false,
 })
 const tagOptions = ['家', '公司', '学校', '其他']
 const saving = ref(false)
+const locating = ref(false)
 const editId = ref<number | string | null>(null)
 
 // 多列选择器索引：[省, 市, 区]
@@ -119,19 +139,151 @@ async function loadDetail(id: number | string) {
   }
 }
 
+/**
+ * 打开地图选点
+ * 跳转到自定义地图选点页面（/pages/address/map）
+ * 该页面集成了真实高德地图和POI搜索，选点完成后通过Storage回传数据
+ */
+function chooseLocation() {
+  if (locating.value) return
+  locating.value = true
+
+  // 监听地图页面返回的选点结果
+  uni.$once('mapPoiSelected', (poi: any) => {
+    console.log('地图选点结果', poi)
+    if (!poi) {
+      locating.value = false
+      return
+    }
+
+    // 填充坐标
+    form.longitude = poi.longitude
+    form.latitude = poi.latitude
+
+    // 解析地址
+    const fullAddress = poi.address || ''
+    const placeName = poi.name || ''
+
+    // 尝试匹配省市区
+    const matched = findRegionByAddress(fullAddress)
+    if (matched) {
+      form.region = `${matched.province} ${matched.city} ${matched.district}`.trim()
+      initMultiIndexFromRegion(form.region)
+      // 详细地址 = 地点名称 + 地址中除省市区外的部分
+      const detailPart = fullAddress
+        .replace(matched.province, '')
+        .replace(matched.city, '')
+        .replace(matched.district, '')
+        .replace(/^[\s,，、]+/, '')
+        .trim()
+      if (placeName && detailPart) {
+        form.address = `${placeName} ${detailPart}`
+      } else {
+        form.address = placeName || detailPart || fullAddress
+      }
+    } else {
+      // 无法自动匹配省市区，仍然填充详细地址
+      if (placeName && fullAddress) {
+        form.address = fullAddress.includes(placeName)
+          ? fullAddress
+          : `${placeName} ${fullAddress}`
+      } else {
+        form.address = placeName || fullAddress
+      }
+      uni.showToast({
+        title: '请确认或手动选择省市区',
+        icon: 'none',
+        duration: 2000,
+      })
+    }
+
+    uni.showToast({ title: '位置选择成功', icon: 'success' })
+    locating.value = false
+  })
+
+  // 跳转到自定义地图选点页面
+  uni.navigateTo({
+    url: '/pages/address/map',
+    fail: (err) => {
+      console.error('跳转地图页面失败', err)
+      locating.value = false
+      // 降级：尝试使用uni.chooseLocation
+      fallbackChooseLocation()
+    },
+  })
+}
+
+/**
+ * 降级方案：使用uni.chooseLocation
+ */
+function fallbackChooseLocation() {
+  uni.chooseLocation({
+    success: (res: any) => {
+      console.log('降级地图选点结果', res)
+      if (res.latitude && res.longitude) {
+        form.longitude = res.longitude
+        form.latitude = res.latitude
+        const fullAddress = res.address || ''
+        const placeName = res.name || ''
+        if (placeName && fullAddress) {
+          form.address = fullAddress.includes(placeName)
+            ? fullAddress
+            : `${placeName} ${fullAddress}`
+        } else {
+          form.address = placeName || fullAddress
+        }
+        uni.showToast({ title: '位置选择成功', icon: 'success' })
+      }
+    },
+    fail: (err: any) => {
+      console.error('地图选点失败', err)
+      uni.showModal({
+        title: '无法打开地图',
+        content: '请检查高德地图key和安全密钥配置，或手动输入地址。',
+        showCancel: false,
+        confirmColor: '#FF6B35',
+      })
+    },
+    complete: () => {
+      locating.value = false
+    },
+  })
+}
+
+/**
+ * 降级方案：直接获取当前位置坐标
+ */
+function fallbackGetLocation() {
+  uni.getLocation({
+    type: 'gcj02',
+    isHighAccuracy: true,
+    success: (res) => {
+      form.longitude = res.longitude
+      form.latitude = res.latitude
+      uni.showToast({ title: '已获取当前位置坐标', icon: 'success' })
+    },
+    fail: () => {
+      uni.showModal({
+        title: '定位失败',
+        content: '请检查是否开启了定位权限，或手动输入地址',
+        showCancel: false,
+        confirmColor: '#FF6B35',
+      })
+    },
+  })
+}
+
 function onColumnChange(e: any) {
   const { column, value } = e.detail
   const idx = [...multiIndex.value] as [number, number, number]
 
   if (column === 0) {
-    // 省变化 -> 更新市和区
     idx[0] = value
     idx[1] = 0
     idx[2] = 0
     const newColumns = getRegionColumns(idx[0], 0)
     multiColumns.value = newColumns
   } else if (column === 1) {
-    // 市变化 -> 更新区
     idx[1] = value
     idx[2] = 0
     const newColumns = getRegionColumns(idx[0], idx[1])
@@ -243,6 +395,54 @@ input {
   font-size: 18px;
   color: $text-muted;
   margin-left: 8px;
+}
+
+/* 定位/地图选点样式 */
+.location-item {
+  cursor: pointer;
+}
+
+.location-info {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.locating-text {
+  color: $primary;
+}
+
+.loc-success {
+  color: $success;
+}
+
+.loc-placeholder {
+  color: $text-muted;
+}
+
+.location-btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, $primary, $primary-light);
+  color: #fff;
+  font-size: 13px;
+  border-radius: 14px;
+  font-weight: 500;
+}
+
+/* 坐标显示 */
+.coord-item {
+  background: rgba(255, 107, 53, 0.03);
+}
+
+.coord-text {
+  flex: 1;
+  font-size: 12px;
+  color: $text-muted;
+  font-family: monospace;
 }
 
 .tag-group {

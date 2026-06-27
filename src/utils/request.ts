@@ -10,7 +10,8 @@
  * 5. 网络 / HTTP / 业务错误统一提示
  */
 
-import { handleApiError } from './errorHandler'
+import { handleApiError, setRedirectingToLogin } from './errorHandler'
+import { message } from './message'
 import { ErrorCode, type ApiResult, type LoginVO } from '@/types/api'
 
 const env = (import.meta as any).env || {}
@@ -52,6 +53,9 @@ const pendingRequests = new Map<string, PendingRequest>()
 let isRefreshing = false
 let refreshQueue: Array<{ resolve: (token: string) => void; reject: (reason?: any) => void }> = []
 
+// 防重复跳转登录标记：多个并发请求同时返回401时，只弹一次提示、跳转一次
+let isRedirectingToLogin = false
+
 function generateTraceId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
@@ -64,12 +68,25 @@ function removePending(id: string) {
   pendingRequests.delete(id)
 }
 
-function clearAuthAndGoLogin(message = '请重新登录') {
+function clearAuthAndGoLogin(msg = '请重新登录') {
+  // 防重复：已经在跳转登录流程中，直接返回，不再弹提示
+  if (isRedirectingToLogin) return
+  isRedirectingToLogin = true
+  // 同步通知 errorHandler，防止并发请求在 errorHandler 中重复弹 401 提示
+  setRedirectingToLogin(true)
+
   clearToken()
   clearRefreshToken()
   uni.removeStorageSync('wzz_user_info')
-  uni.showToast({ title: message, icon: 'none' })
-  setTimeout(() => uni.reLaunch({ url: '/pages/login/login' }), 800)
+  message.error(msg)
+  setTimeout(() => {
+    uni.reLaunch({ url: '/pages/login/login' })
+    // 跳转后延迟重置标记，防止极端情况下标记永远为true
+    setTimeout(() => {
+      isRedirectingToLogin = false
+      setRedirectingToLogin(false)
+    }, 1000)
+  }, 800)
 }
 
 /**
@@ -203,17 +220,19 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
 
         // 账号被禁用：直接登出，不进行 token 刷新
         if (body.code === ErrorCode.USER_DISABLED) {
-          clearAuthAndGoLogin('账号已被禁用，请联系客服')
+          clearAuthAndGoLogin('账号已被禁用')
           reject(body)
           return
         }
 
         // 认证失效：刷新 token 并重试（仅允许重试一次，防止死循环）
-        const isAuthError = status === 401 || body.code === ErrorCode.UNAUTHORIZED
+        // 登录接口本身的 401 不触发全局登出，交给登录页自行处理
+        const isLoginRequest = url.includes('/auth/login/')
+        const isAuthError = (status === 401 || body.code === ErrorCode.UNAUTHORIZED) && !isLoginRequest
 
         if (isAuthError) {
           if (_retry) {
-            clearAuthAndGoLogin('登录已过期，请重新登录')
+            clearAuthAndGoLogin('登录已过期')
             reject(body)
             return
           }
@@ -226,7 +245,7 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
               resolve(retried)
               return
             } catch (e) {
-              clearAuthAndGoLogin('登录已过期，请重新登录')
+              clearAuthAndGoLogin('登录已过期')
               reject(e)
               return
             }
@@ -238,6 +257,12 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
         }
 
         // 业务错误 / HTTP 错误统一提示
+        // 正在跳转登录时不再弹额外错误提示，避免多个并发请求同时弹提示
+        if (isRedirectingToLogin) {
+          reject({ type: 'business' as const, code: body.code, message: body.message || '请求失败' })
+          return
+        }
+
         const err =
           status >= 200 && status < 300
             ? { type: 'business' as const, code: body.code, message: body.message || '请求失败' }
@@ -256,7 +281,13 @@ export function request<T = any>(options: ApiOptions): Promise<T> {
           return
         }
 
-        const networkErr = { type: 'network' as const, raw: err, message: errMsg || '网络异常' }
+        // 正在跳转登录时不再弹网络错误提示
+        if (isRedirectingToLogin) {
+          reject({ type: 'network' as const, raw: err, message: '网络异常，请重试' })
+          return
+        }
+
+        const networkErr = { type: 'network' as const, raw: err, message: '网络异常，请重试' }
         handleApiError(networkErr)
         reject(networkErr)
       },

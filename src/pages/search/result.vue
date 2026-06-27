@@ -2,9 +2,6 @@
   <view class="search-result-page">
     <!-- 顶部搜索栏 -->
     <view class="search-header" :style="{ paddingTop: `calc(var(--status-bar-height, 20px) + 10px)` }">
-      <view class="back-btn" @tap="goBack">
-        <view class="back-arrow" />
-      </view>
       <view class="search-input-wrap">
         <CategoryIcon name="search" :size="18" class="search-icon" />
         <input
@@ -12,7 +9,7 @@
           class="search-input"
           type="text"
           :focus="focus"
-          placeholder="请输入商家或商品名称"
+          placeholder="请输入菜品名称"
           placeholder-class="placeholder"
           confirm-type="search"
           @confirm="onSearch"
@@ -24,7 +21,7 @@
       <view class="header-action" @tap="onSearch">搜索</view>
     </view>
 
-    <!-- 筛选条 -->
+    <!-- 分类筛选条 -->
     <view class="filter-bar">
       <scroll-view class="category-scroll" scroll-x show-scrollbar="false">
         <view class="category-scroll-inner">
@@ -38,21 +35,19 @@
           </view>
         </view>
       </scroll-view>
-      <view class="sort-bar">
-        <view
-          v-for="s in sorts"
-          :key="s.value"
-          :class="['sort-item', sort === s.value && 'sort-active']"
-          @tap="onSort(s.value)"
-        >
-          {{ s.label }}
-        </view>
-      </view>
     </view>
 
     <!-- 结果列表 -->
-    <scroll-view scroll-y class="result-scroll" :style="{ height: scrollHeight + 'px' }">
-      <view v-if="loading" class="loading-wrap">
+    <scroll-view
+      scroll-y
+      class="result-scroll"
+      :style="{ height: scrollHeight + 'px' }"
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      @refresherrefresh="onRefresh"
+      @scrolltolower="onLoadMore"
+    >
+      <view v-if="loading && !refreshing && !loadingMore" class="loading-wrap">
         <view class="loading-spinner"></view>
         <text class="loading-text">加载中...</text>
       </view>
@@ -61,46 +56,70 @@
         <view
           v-for="item in resultList"
           :key="item.id"
-          class="merchant-card"
-          @tap="goMerchant(item.id)"
+          class="dish-card"
+          @tap="goDishDetail(item.id)"
         >
-          <view class="merchant-img-wrap">
+          <view class="dish-img-wrap">
             <SmartImage
-              v-if="item.imageUrl"
-              :src="item.imageUrl"
-              :bg="item.bg"
-              icon="shop"
-              :iconSize="30"
-              radius="8px"
+              v-if="item.image || item.images?.[0]"
+              :src="item.image || item.images?.[0]"
+              bg="linear-gradient(135deg, #FF6B35, #FFC107)"
+              icon="meishi"
+              :iconSize="28"
+              radius="10px"
               mode="aspectFill"
             />
-            <view v-else class="merchant-img" :style="{ background: item.bg }">
-              <text class="logo-text">{{ item.logo }}</text>
+            <view v-else class="dish-img-placeholder">
+              <CategoryIcon name="meishi" :size="32" color="#fff" />
             </view>
           </view>
-          <view class="merchant-info">
-            <view class="merchant-name">{{ item.name }}</view>
-            <view class="merchant-row">
-              <text class="merchant-score">{{ item.rating }} 分</text>
-              <text class="merchant-sale">月售 {{ item.monthlySales }}+</text>
-              <text class="merchant-time">{{ item.deliveryTime }}</text>
+          <view class="dish-info">
+            <view class="dish-name-row">
+              <text class="dish-name">{{ item.name }}</text>
             </view>
-            <view class="merchant-row">
-              <text class="merchant-fee">起送 ¥{{ item.minOrder }}</text>
-              <text class="merchant-fee">配送 ¥{{ item.deliveryFee }}</text>
+            <text v-if="item.description" class="dish-desc">{{ item.description }}</text>
+            <text class="dish-merchant">
+              <CategoryIcon name="shop" :size="10" class="merchant-icon" />
+              {{ item.merchantName || '未知商家' }}
+            </text>
+            <view v-if="item.tags?.length" class="dish-tags">
+              <text v-for="(tag, idx) in item.tags.slice(0, 3)" :key="idx" class="dish-tag">{{ tag }}</text>
             </view>
-            <view v-if="item.tags?.length" class="merchant-tags">
-              <text v-for="(tag, idx) in item.tags" :key="idx" class="merchant-tag">{{ tag.text }}</text>
+            <view class="dish-bottom">
+              <view class="dish-meta">
+                <text v-if="item.rating" class="dish-score">
+                  <CategoryIcon name="star" :size="10" />
+                  {{ item.rating }}分
+                </text>
+                <text class="dish-sales">月售{{ formatSales(item.monthSales || 0) }}</text>
+              </view>
+              <view class="dish-price-row">
+                <text class="dish-price">
+                  <text class="price-symbol">¥</text>{{ item.price }}
+                </text>
+                <text v-if="item.originalPrice && item.originalPrice > item.price" class="dish-original-price">
+                  ¥{{ item.originalPrice }}
+                </text>
+                <view class="add-cart-btn" @tap.stop="onAddCart(item)">
+                  <CategoryIcon name="cart" :size="16" color="#fff" />
+                </view>
+              </view>
             </view>
-          </view>
-          <view class="fav-btn" :class="{ 'fav-active': favoriteIds.has(String(item.id)) }" @tap.stop="toggleFavorite(item)">
-            <CategoryIcon :name="favoriteIds.has(String(item.id)) ? 'favorite-filled' : 'favorite'" :size="20" />
           </view>
         </view>
       </view>
 
-      <view v-else class="empty-wrap">
-        <AppEmpty icon="ticket-empty" title="暂无相关结果" :subtitle="`未找到与“${keyword}”相关的商家`" />
+      <view v-else-if="!loading" class="empty-wrap">
+        <AppEmpty icon="ticket-empty" title="暂无菜品" :subtitle="keyword ? `未找到与「${keyword}」相关的菜品` : '该分类下暂无菜品'" />
+      </view>
+
+      <!-- 加载更多状态 -->
+      <view v-if="loadingMore" class="load-more-wrap">
+        <view class="loading-spinner small"></view>
+        <text class="load-more-text">加载中...</text>
+      </view>
+      <view v-else-if="noMore && resultList.length" class="load-more-wrap">
+        <text class="no-more-text">没有更多了</text>
       </view>
 
       <view style="height: 20px;"></view>
@@ -109,32 +128,28 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { ref, onMounted } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import AppEmpty from '@/components/AppEmpty/AppEmpty.vue'
-import { getMerchantPage, getMerchantCategories, addFavorite, removeFavorite, getFavorites } from '@/api'
-import { useUserStore } from '@/store/user'
-import type { MerchantCardVO, MerchantCategoryVO } from '@/types/api'
+import { getDishPage, getMerchantCategories } from '@/api'
+import { useCartStore } from '@/store/cart'
+import type { DishVO, MerchantCategoryVO } from '@/types/api'
 
-const userStore = useUserStore()
+const cartStore = useCartStore()
 const keyword = ref('')
 const focus = ref(false)
 const loading = ref(false)
+const refreshing = ref(false)
+const loadingMore = ref(false)
+const noMore = ref(false)
 const activeCategory = ref<number | string | 0>(0)
-const sort = ref('default')
 const scrollHeight = ref(600)
 const categories = ref<MerchantCategoryVO[]>([{ id: 0, name: '全部' }])
-const resultList = ref<MerchantCardVO[]>([])
-const favoriteIds = ref<Set<string>>(new Set())
-
-const sorts = [
-  { label: '综合', value: 'default' },
-  { label: '销量', value: 'sales' },
-  { label: '评分', value: 'rating' },
-  { label: '距离', value: 'distance' },
-]
+const resultList = ref<DishVO[]>([])
+const currentPage = ref(1)
+const pageSize = 10
 
 onLoad((q: any) => {
   keyword.value = q?.keyword ? decodeURIComponent(q.keyword) : ''
@@ -146,18 +161,13 @@ onLoad((q: any) => {
 
 onMounted(() => {
   loadCategories()
-  loadFavorites()
   uni.getSystemInfo({
     success: (res: any) => {
       const statusBar = res.statusBarHeight || 20
-      // header(statusBar+50) + filterBar(约88px)
-      scrollHeight.value = res.windowHeight - statusBar - 50 - 88
+      // header(statusBar+64: 含statusBar+10px padding-top + 40px输入框 + 14px padding-bottom) + filterBar(约50px)
+      scrollHeight.value = res.windowHeight - statusBar - 64 - 50
     },
   })
-})
-
-onShow(() => {
-  loadFavorites()
 })
 
 async function loadCategories() {
@@ -169,79 +179,90 @@ async function loadCategories() {
   }
 }
 
-async function loadFavorites() {
-  if (!userStore.isLoggedIn) {
-    favoriteIds.value = new Set()
-    return
-  }
-  try {
-    const page = await getFavorites({ current: 1, size: 100 })
-    const ids = new Set<string>()
-    ;(page.list || []).forEach((m) => ids.add(String(m.id)))
-    favoriteIds.value = ids
-  } catch (e) {
-    console.error('加载收藏状态失败', e)
-  }
+function formatSales(sales: number): string {
+  if (sales >= 1000) return (sales / 1000).toFixed(1) + 'k+'
+  if (sales >= 100) return '100+'
+  return String(sales)
 }
 
-async function toggleFavorite(item: MerchantCardVO) {
-  if (!userStore.isLoggedIn) {
-    uni.showToast({ title: '请先登录', icon: 'none' })
-    uni.navigateTo({ url: '/pages/login/login' })
-    return
+async function fetchPage(page: number, isRefresh = false): Promise<{ list: DishVO[]; total: number }> {
+  const kw = keyword.value.trim()
+  const params: Record<string, any> = {
+    current: page,
+    size: pageSize,
   }
-  const id = String(item.id)
-  const isFav = favoriteIds.value.has(id)
-  try {
-    if (isFav) {
-      await removeFavorite(item.id)
-      favoriteIds.value.delete(id)
-      favoriteIds.value = new Set(favoriteIds.value)
-      uni.showToast({ title: '已取消收藏', icon: 'none' })
-    } else {
-      await addFavorite(item.id)
-      favoriteIds.value.add(id)
-      favoriteIds.value = new Set(favoriteIds.value)
-      uni.showToast({ title: '已收藏', icon: 'success' })
-    }
-  } catch (e) {
-    console.error('收藏操作失败', e)
-  }
+  if (kw) params.keyword = kw
+  if (activeCategory.value) params.platformCategoryId = activeCategory.value
+  return await getDishPage(params)
 }
-
-watch(keyword, () => {
-  if (!keyword.value.trim() && !activeCategory.value) resultList.value = []
-})
 
 async function onSearch() {
   const kw = keyword.value.trim()
   if (!kw && !activeCategory.value) {
     resultList.value = []
+    noMore.value = false
     return
   }
   loading.value = true
+  currentPage.value = 1
+  noMore.value = false
   try {
-    const params: Record<string, any> = { current: 1, size: 20 }
-    if (kw) params.keyword = kw
-    if (activeCategory.value) params.categoryId = activeCategory.value
-    if (sort.value !== 'default') params.sortBy = sort.value
-    const page = await getMerchantPage(params)
+    const page = await fetchPage(1)
     resultList.value = page.list || []
+    if (resultList.value.length < pageSize) {
+      noMore.value = true
+    }
     saveHistory(kw)
   } catch (e) {
-    console.error('搜索商家失败', e)
+    console.error('搜索菜品失败', e)
   } finally {
     loading.value = false
   }
 }
 
-function onCategory(id: number) {
-  activeCategory.value = id
-  onSearch()
+async function onRefresh() {
+  refreshing.value = true
+  currentPage.value = 1
+  noMore.value = false
+  try {
+    const page = await fetchPage(1, true)
+    resultList.value = page.list || []
+    if (resultList.value.length < pageSize) {
+      noMore.value = true
+    }
+  } catch (e) {
+    console.error('刷新失败', e)
+  } finally {
+    refreshing.value = false
+  }
 }
 
-function onSort(value: string) {
-  sort.value = value
+async function onLoadMore() {
+  if (loadingMore.value || noMore.value || loading.value) return
+  if (resultList.value.length === 0) return
+  loadingMore.value = true
+  try {
+    const nextPage = currentPage.value + 1
+    const page = await fetchPage(nextPage)
+    const list = page.list || []
+    if (list.length === 0) {
+      noMore.value = true
+    } else {
+      resultList.value = [...resultList.value, ...list]
+      currentPage.value = nextPage
+      if (list.length < pageSize) {
+        noMore.value = true
+      }
+    }
+  } catch (e) {
+    console.error('加载更多失败', e)
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+function onCategory(id: number | string) {
+  activeCategory.value = id
   onSearch()
 }
 
@@ -253,12 +274,23 @@ function saveHistory(kw: string) {
   uni.setStorageSync('wzz_search_history', filtered.slice(0, 10))
 }
 
-function goBack() {
-  uni.navigateBack()
+function goDishDetail(id: number | string) {
+  uni.navigateTo({ url: `/pages/dish/detail?id=${id}` })
 }
 
-function goMerchant(id: number | string) {
-  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}` })
+async function onAddCart(item: DishVO) {
+  try {
+    // ID保持字符串传递，避免雪花ID精度丢失，后端StringToLongDeserializer支持字符串转Long
+    await cartStore.addItem({
+      merchantId: String(item.merchantId),
+      dishId: String(item.id),
+      quantity: 1,
+    })
+    uni.showToast({ title: '已加入购物车', icon: 'success' })
+  } catch (e) {
+    console.error('加入购物车失败', e)
+    uni.showToast({ title: '加入购物车失败', icon: 'none' })
+  }
 }
 </script>
 
@@ -280,23 +312,6 @@ function goMerchant(id: number | string) {
   position: sticky;
   top: 0;
   z-index: 50;
-}
-
-.back-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.back-arrow {
-  width: 10px;
-  height: 10px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: rotate(45deg);
-  margin-left: 6px;
 }
 
 .search-input-wrap {
@@ -357,7 +372,7 @@ function goMerchant(id: number | string) {
 .category-scroll-inner {
   display: inline-flex;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 12px 16px;
 }
 
 .category-pill {
@@ -374,24 +389,6 @@ function goMerchant(id: number | string) {
   background: $primary;
   color: #fff;
   font-weight: 600;
-}
-
-.sort-bar {
-  display: flex;
-  justify-content: space-around;
-  padding: 10px 16px;
-  border-top: 1px solid $border;
-}
-
-.sort-item {
-  font-size: 13px;
-  color: $text-light;
-  position: relative;
-}
-
-.sort-item.sort-active {
-  color: $primary;
-  font-weight: 700;
 }
 
 .result-scroll {
@@ -412,6 +409,12 @@ function goMerchant(id: number | string) {
   border-top-color: $primary;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+
+  &.small {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+  }
 }
 
 .loading-text {
@@ -428,109 +431,176 @@ function goMerchant(id: number | string) {
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.merchant-card {
+/* 菜品卡片 */
+.dish-card {
   display: flex;
   gap: 12px;
   background: $card;
   border-radius: $radius-lg;
-  padding: 14px;
+  padding: 12px;
   box-shadow: $shadow;
-  position: relative;
 }
 
-.fav-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: $text-muted;
-  opacity: 0.5;
-  transition: all 0.2s;
-}
-
-.fav-btn.fav-active {
-  color: $danger;
-  opacity: 1;
-}
-
-.merchant-img-wrap {
-  width: 84px;
-  height: 84px;
+.dish-img-wrap {
+  width: 96px;
+  height: 96px;
   border-radius: $radius-md;
   flex-shrink: 0;
   overflow: hidden;
 }
 
-.merchant-img {
-  width: 84px;
-  height: 84px;
+.dish-img-placeholder {
+  width: 96px;
+  height: 96px;
   border-radius: $radius-md;
+  background: linear-gradient(135deg, #FF6B35, #FFC107);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
   flex-shrink: 0;
-  overflow: hidden;
 }
 
-.logo-text {
-  font-size: 32px;
-  font-weight: 700;
-}
-
-.merchant-info {
+.dish-info {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding-right: 32px;
+  gap: 4px;
 }
 
-.merchant-name {
+.dish-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dish-name {
   font-size: 15px;
   font-weight: 600;
   color: $text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.merchant-row {
+.dish-desc {
+  font-size: 12px;
+  color: $text-muted;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dish-merchant {
+  font-size: 11px;
+  color: $text-light;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.merchant-score {
-  font-size: 14px;
-  font-weight: 700;
+.merchant-icon {
+  flex-shrink: 0;
+}
+
+.dish-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dish-tag {
+  font-size: 10px;
+  color: $primary;
+  background: rgba($primary, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.dish-bottom {
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.dish-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: $text-muted;
+}
+
+.dish-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: $secondary;
+  font-weight: 600;
+}
+
+.dish-sales {
+  color: $text-muted;
+}
+
+.dish-price-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dish-price {
+  font-size: 18px;
+  font-weight: 800;
   color: $secondary;
 }
 
-.merchant-sale,
-.merchant-time,
-.merchant-fee {
+.price-symbol {
+  font-size: 12px;
+}
+
+.dish-original-price {
+  font-size: 11px;
+  color: $text-muted;
+  text-decoration: line-through;
+}
+
+.add-cart-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: $primary;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  box-shadow: 0 2px 6px rgba($primary, 0.35);
+  flex-shrink: 0;
+}
+
+.load-more-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px 0;
+}
+
+.load-more-text {
   font-size: 12px;
   color: $text-muted;
 }
 
-.merchant-tags {
-  display: flex;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.merchant-tag {
-  font-size: 10px;
-  color: $primary;
-  background: rgba($primary, 0.1);
-  padding: 2px 6px;
-  border-radius: 8px;
+.no-more-text {
+  font-size: 12px;
+  color: $text-light;
 }
 
 .empty-wrap {

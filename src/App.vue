@@ -3,6 +3,7 @@ import { onLaunch, onShow, onHide } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
 import { useTabStore } from '@/store/tab'
 import { wsService } from '@/utils/websocket'
+import MessageContainer from '@/components/Message/MessageContainer.vue'
 
 onLaunch(() => {
   console.log('App Launch - 味真足')
@@ -48,6 +49,10 @@ onHide(() => {
   // App切后台不断开WebSocket，保持消息接收
 })
 </script>
+
+<template>
+  <MessageContainer />
+</template>
 
 <style lang="scss">
 /* 全局样式 - 红色调外卖风格 */

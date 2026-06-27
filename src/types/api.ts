@@ -61,6 +61,10 @@ export interface AddressVO {
   address: string
   tag?: string
   default?: boolean
+  /** 经度 */
+  longitude?: number | string
+  /** 纬度 */
+  latitude?: number | string
 }
 
 /** 收货地址请求 DTO（与后端 AddressDTO 保持一致） */
@@ -171,6 +175,8 @@ export interface DishSpecVO {
 export interface DishVO {
   id: number | string
   merchantId: number | string
+  merchantName?: string
+  merchantLogo?: string
   name: string
   description?: string
   image?: string
@@ -183,8 +189,12 @@ export interface DishVO {
   rating?: number
   tags?: string[]
   spicy?: number
+  categoryName?: string
+  platformCategoryId?: number | string
+  platformCategoryName?: string
   status?: number
   sort?: number
+  createTime?: string
   specs?: DishSpecVO[]
 }
 
@@ -245,6 +255,20 @@ export interface CartItemVO {
   subtotal: number
 }
 
+/** 购物车分组（按商家分组） */
+export interface CartGroupVO {
+  merchantId: number | string
+  merchantName: string
+  merchantLogo?: string
+  items: CartItemVO[]
+  totalAmount: number
+  deliveryFee?: number
+  packingFee?: number
+  payAmount: number
+  minOrderAmount?: number
+  reachMinAmount?: boolean
+}
+
 /** 购物车 */
 export interface CartVO {
   merchantId?: number | string
@@ -256,6 +280,8 @@ export interface CartVO {
   payAmount?: number
   minOrderAmount?: number
   reachMinAmount?: boolean
+  totalCount?: number
+  groups?: CartGroupVO[]
 }
 
 /** 订单项 */
@@ -309,6 +335,12 @@ export interface OrderVO {
   riderName?: string
   riderPhone?: string
   expectedTime?: string
+  /** 是否已评价 */
+  isRated?: number
+  /** 用户名称 */
+  userName?: string
+  /** 用户电话 */
+  userPhone?: string
 }
 
 /** 支付信息 */
@@ -347,6 +379,13 @@ export interface DeliveryStepVO {
   done: boolean
 }
 
+/** 骑手留言 */
+export interface RiderMessageVO {
+  id?: number
+  content?: string
+  time?: string
+}
+
 /** 配送跟踪 */
 export interface DeliveryVO {
   orderId: number | string
@@ -359,12 +398,55 @@ export interface DeliveryVO {
     avatar?: string
     phone?: string
     rating?: number
+    /** 骑手当前经度 */
+    lng?: number | string
+    /** 骑手当前纬度 */
+    lat?: number | string
+    /** 骑手距离 */
+    distance?: number
   }
   merchant?: {
     name?: string
     address?: string
     phone?: string
+    /** 商家经度 */
+    lng?: number | string
+    /** 商家纬度 */
+    lat?: number | string
   }
+  /** 用户收货地址信息 */
+  userInfo?: {
+    address?: string
+    /** 用户经度 */
+    lng?: number | string
+    /** 用户纬度 */
+    lat?: number | string
+    phone?: string
+  }
+  /** 骑手当前经度 */
+  riderLng?: number | string
+  /** 骑手当前纬度 */
+  riderLat?: number | string
+  /** 商家经度 */
+  merchantLng?: number | string
+  /** 商家纬度 */
+  merchantLat?: number | string
+  /** 用户收货地址经度 */
+  userLng?: number | string
+  /** 用户收货地址纬度 */
+  userLat?: number | string
+  /** 骑手到目的地距离（米） */
+  distance?: number
+  /** 骑手到商家距离（米） */
+  distanceToMerchant?: number
+  /** 骑手到用户距离（米） */
+  distanceToUser?: number
+  /** 导航目标：merchant=去商家取餐, user=送餐给用户 */
+  navigationTarget?: 'merchant' | 'user'
+  /** 用餐类型：1=外卖, 2=堂食 */
+  diningType?: number
+  /** 骑手最近留言 */
+  recentMessages?: RiderMessageVO[]
   address?: AddressDTO
   expectedTime?: string
 }
@@ -377,6 +459,8 @@ export interface CouponVO {
   typeDesc?: string
   amount?: number
   threshold?: number
+  /** threshold 的别名，满减门槛 */
+  minPoint?: number
   discount?: number
   maxDiscount?: number
   totalCount?: number
@@ -388,19 +472,33 @@ export interface CouponVO {
   validEnd?: string
   validDays?: number
   scope?: number
+  scopeIds?: (number | string)[]
+  scopeName?: string
   status?: number
   canReceive?: boolean
+  /** 是否已使用（我的优惠券中使用） */
+  used?: boolean
 }
 
 /** 评价 */
 export interface ReviewVO {
   id: number | string
   userId?: number | string
-  nickname?: string
-  avatar?: string
+  /** 用户昵称 */
+  userNickname?: string
+  /** 用户头像 */
+  userAvatar?: string
   orderId?: number | string
   merchantId?: number | string
+  /** 商家名称 */
+  merchantName?: string
   dishId?: number | string
+  /** 骑手ID */
+  deliveryManId?: number | string
+  /** 骑手名称 */
+  deliveryManName?: string
+  /** 评价菜品名称列表 */
+  dishNames?: string[]
   rating: number
   tasteScore?: number
   packingScore?: number
@@ -409,7 +507,15 @@ export interface ReviewVO {
   images?: string[]
   tags?: string[]
   anonymous?: number
+  /** 商家回复 */
+  merchantReply?: string
+  /** 商家回复（别名） */
   reply?: string
+  /** 商家回复时间 */
+  merchantReplyTime?: string
+  /** 评价状态：0隐藏 1公开 */
+  status?: number
+  /** 创建时间 */
   createdAt?: string
 }
 

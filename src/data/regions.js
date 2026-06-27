@@ -138,11 +138,20 @@ const regions = [
     c('临沂市', d('兰山区', '罗庄区', '河东区', '沂南县', '郯城县')),
   ]),
   p('河南省', [
-    c('郑州市', d('中原区', '二七区', '管城回族区', '金水区', '上街区')),
+    c('郑州市', d('中原区', '二七区', '管城回族区', '金水区', '上街区', '惠济区')),
     c('开封市', d('龙亭区', '顺河回族区', '鼓楼区', '禹王台区', '祥符区')),
-    c('洛阳市', d('老城区', '西工区', '瀍河回族区', '涧西区', '吉利区')),
+    c('洛阳市', d('老城区', '西工区', '瀍河回族区', '涧西区', '吉利区', '洛龙区')),
+    c('平顶山市', d('新华区', '卫东区', '石龙区', '湛河区', '宝丰县')),
+    c('安阳市', d('文峰区', '北关区', '殷都区', '龙安区', '安阳县')),
     c('新乡市', d('红旗区', '卫滨区', '凤泉区', '牧野区', '新乡县')),
-    c('南阳市', d('宛城区', '卧龙区', '南召县', '方城县', '西峡县')),
+    c('焦作市', d('解放区', '中站区', '马村区', '山阳区', '修武县')),
+    c('许昌市', d('魏都区', '建安区', '鄢陵县', '襄城县', '禹州市')),
+    c('漯河市', d('源汇区', '郾城区', '召陵区', '舞阳县', '临颍县')),
+    c('南阳市', d('宛城区', '卧龙区', '南召县', '方城县', '西峡县', '镇平县')),
+    c('商丘市', d('梁园区', '睢阳区', '民权县', '睢县', '宁陵县', '柘城县', '虞城县', '夏邑县')),
+    c('信阳市', d('浉河区', '平桥区', '罗山县', '光山县', '新县')),
+    c('周口市', d('川汇区', '淮阳区', '扶沟县', '西华县', '商水县', '沈丘县')),
+    c('驻马店市', d('驿城区', '西平县', '上蔡县', '平舆县', '正阳县')),
   ]),
   p('湖北省', [
     c('武汉市', d('江岸区', '江汉区', '硚口区', '汉阳区', '武昌区')),
@@ -296,6 +305,74 @@ export function getRegionColumns(provinceIdx = 0, cityIdx = 0) {
   const cityName = cities[cityIdx] || cities[0]
   const districts = getDistricts(provinceName, cityName)
   return [provinces, cities, districts]
+}
+
+/**
+ * 从地址字符串中解析匹配省市区
+ * @param {string} address - 完整地址字符串（如"北京市朝阳区xxx路"）
+ * @returns {{province: string, city: string, district: string} | null}
+ */
+export function findRegionByAddress(address) {
+  if (!address) return null
+
+  // 遍历所有省份
+  for (const province of regions) {
+    // 检查地址是否包含省份名称（处理"北京市"和"北京"两种情况）
+    const provinceName = province.name
+    const provinceShort = provinceName.replace(/省|市|自治区|特别行政区|壮族|回族|维吾尔/g, '')
+    if (!address.includes(provinceName) && !address.includes(provinceShort)) continue
+
+    // 遍历城市
+    for (const city of province.children) {
+      const cityName = city.name
+      const cityShort = cityName.replace(/市|地区|自治州|盟/g, '')
+      if (!address.includes(cityName) && !address.includes(cityShort)) continue
+
+      // 遍历区县
+      for (const districtName of city.districts) {
+        const districtShort = districtName.replace(/区|县|市|镇|乡|街道/g, '')
+        if (address.includes(districtName) || (districtShort.length >= 2 && address.includes(districtShort))) {
+          return {
+            province: provinceName,
+            city: cityName,
+            district: districtName,
+          }
+        }
+      }
+
+      // 如果没找到区县，至少返回省和市
+      return {
+        province: provinceName,
+        city: cityName,
+        district: '',
+      }
+    }
+
+    // 对于直辖市（北京、天津、上海、重庆），城市名和省份名相同
+    if (province.children.length > 0) {
+      // 检查是否在区县中
+      for (const city of province.children) {
+        for (const districtName of city.districts) {
+          const districtShort = districtName.replace(/区|县|市/g, '')
+          if (address.includes(districtName) || (districtShort.length >= 2 && address.includes(districtShort))) {
+            return {
+              province: provinceName,
+              city: city.name,
+              district: districtName,
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      province: provinceName,
+      city: province.children[0]?.name || provinceName,
+      district: '',
+    }
+  }
+
+  return null
 }
 
 export default regions

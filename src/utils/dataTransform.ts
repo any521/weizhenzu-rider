@@ -29,6 +29,8 @@ export function addressDtoToVo(dto: AddressDTO): AddressVO {
     address: dto.detail,
     tag: dto.tag,
     default: dto.isDefault === 1,
+    longitude: dto.longitude,
+    latitude: dto.latitude,
   }
 }
 
@@ -49,6 +51,8 @@ export function addressVoToDto(vo: Partial<AddressVO>): AddressDTO {
     city,
     district,
     detail: vo.address || '',
+    longitude: vo.longitude != null ? Number(vo.longitude) : undefined,
+    latitude: vo.latitude != null ? Number(vo.latitude) : undefined,
     tag: vo.tag,
     isDefault: vo.default ? 1 : 0,
   }
@@ -228,7 +232,8 @@ export function menuCategoriesToCard(
   return (categories || []).map((c, idx) => ({
     title: c.name || '其他',
     icon: icons[idx % icons.length],
-    dishes: (c.dishes || []).map((d) => dishVoToCard(d, qtyMap?.[`${d.id}-${''}`] || 0)),
+    // 菜品列表中的dish是DishVO，无specId字段，匹配默认规格（空specId）
+    dishes: (c.dishes || []).map((d) => dishVoToCard(d, qtyMap?.[`${d.id}-`] || 0)),
   }))
 }
 

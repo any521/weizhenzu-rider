@@ -47,12 +47,12 @@
       </view>
     </view>
 
-    <!-- 推荐商家 -->
+    <!-- 最近5道菜品 -->
     <view class="deal-section">
       <view class="deal-header">
         <view class="deal-title">
-          <text class="deal-name">精选推荐</text>
-          <text class="deal-tag">人气好品</text>
+          <text class="deal-name">精选菜品</text>
+          <text class="deal-tag">最近上新</text>
         </view>
         <text class="deal-more">更多 ›</text>
       </view>
@@ -65,8 +65,8 @@
         >
           <view class="deal-img-wrap">
             <SmartImage
-              :src="d.imageUrl"
-              :bg="d.bg || 'linear-gradient(135deg, #FF6B35, #FFC107)'"
+              :src="d.image || d.images?.[0]"
+              :bg="'linear-gradient(135deg, #FF6B35, #FFC107)'"
               icon="meishi"
               :iconSize="28"
               radius="10px"
@@ -79,7 +79,7 @@
             <text class="deal-price">
               <text class="price-symbol">¥</text>{{ d.price }}
             </text>
-            <text v-if="d.reason" class="deal-reason">{{ d.reason }}</text>
+            <text class="deal-sales">月销{{ d.monthSales || d.totalSales || 0 }}</text>
           </view>
         </view>
       </scroll-view>
@@ -219,23 +219,24 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getMerchantCategories, getMerchantPage, getAvailableCoupons, getRecommendDishes, receiveCoupon, getDefaultAddress, addFavorite, removeFavorite, getFavorites } from '@/api/index'
-import type { MerchantCategoryVO, MerchantCardVO, CouponVO, RecommendDishVO } from '@/types/api'
+import { getMerchantCategories, getMerchantPage, getAvailableCoupons, getFeaturedDishes, receiveCoupon, getDefaultAddress, addFavorite, removeFavorite, getFavorites } from '@/api/index'
+import type { MerchantCategoryVO, MerchantCardVO, CouponVO, DishVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import Category3DIcon from '@/components/Category3DIcon/Category3DIcon.vue'
 import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 import { useTabStore } from '@/store/tab'
 import { useUserStore } from '@/store/user'
-import { recommendDishesToCard } from '@/utils/dataTransform'
+import { useCartStore } from '@/store/cart'
 
 const tabStore = useTabStore()
 const userStore = useUserStore()
+const cartStore = useCartStore()
 const locationText = ref('请选择地址')
 const merchants = ref<MerchantCardVO[]>([])
 const categories = ref<MerchantCategoryVO[]>([])
 const coupons = ref<CouponVO[]>([])
-const deals = ref<RecommendDishVO[]>([])
+const deals = ref<DishVO[]>([])
 const loading = ref(false)
 const showMorePanel = ref(false)
 const activeTopTab = ref('外卖')
@@ -247,8 +248,12 @@ const filters = ['综合排序', '销量最高', '距离最近', '筛选']
 /** 已收藏商家ID集合 */
 const favoriteIds = ref<Set<string>>(new Set())
 
-/** 当前配送类型: 1=外卖, 2=自取 */
-const deliveryType = computed(() => (activeTopTab.value === '自取' ? 2 : 1))
+/** 用户当前位置经纬度 */
+const userLocation = ref<{ lng: number; lat: number } | null>(null)
+const locationLoaded = ref(false)
+
+/** 当前配送类型: 2=外卖（后端diningType=2）, 3=自取（后端diningType=3） */
+const deliveryType = computed(() => (activeTopTab.value === '自取' ? 3 : 2))
 
 const CATEGORY_BG: Record<string, string> = {
   美食: 'linear-gradient(135deg, #FF6B35, #FF8C42)',
@@ -419,14 +424,37 @@ onShow(() => {
 
 onMounted(() => {
   loadCategories()
+  loadUserLocation()
   loadMerchants()
   loadCoupons()
   loadDeals()
   loadFavorites()
 })
 
-// 切换外卖/自取tab时重新加载商家和推荐
+/**
+ * 获取用户当前位置
+ */
+function loadUserLocation() {
+  if (locationLoaded.value) return
+  uni.getLocation({
+    type: 'gcj02',
+    isHighAccuracy: true,
+    success: (res) => {
+      userLocation.value = { lng: res.longitude, lat: res.latitude }
+      locationLoaded.value = true
+      // 获取到位置后重新加载商家以计算距离
+      loadMerchants()
+    },
+    fail: () => {
+      // 定位失败时不影响页面展示，只是不计算距离
+      locationLoaded.value = true
+    },
+  })
+}
+
+// 切换外卖/自取tab时重新加载商家和推荐，并同步到购物车store
 watch(activeTopTab, () => {
+  cartStore.setDiningType(deliveryType.value)
   loadMerchants()
   loadDeals()
 })
@@ -443,10 +471,16 @@ async function loadMerchants() {
   loading.value = true
   try {
     const dt = deliveryType.value
-    const page = await getMerchantPage({ current: 1, size: 10, deliveryType: dt })
+    const params: any = { current: 1, size: 10, diningType: dt }
+    // 如果有用户位置，传入经纬度计算距离
+    if (userLocation.value) {
+      params.lng = userLocation.value.lng
+      params.lat = userLocation.value.lat
+    }
+    const page = await getMerchantPage(params)
     // 前端兜底过滤：外卖模式只显示 supportDelivery=1，自取模式只显示 supportPickup=1
-    const supportField = dt === 2 ? 'supportPickup' : 'supportDelivery'
-    merchants.value = page.list.filter((m) => m[supportField] !== 0)
+    const supportField = dt === 3 ? 'supportPickup' : 'supportDelivery'
+    merchants.value = page.list.filter((m: any) => m[supportField] !== 0)
   } catch (e) {
     console.error('加载商家失败', e)
   } finally {
@@ -457,8 +491,8 @@ async function loadMerchants() {
 async function loadCoupons() {
   try {
     const list = await getAvailableCoupons()
-    // 只展示 canReceive=true 的优惠券（过滤已领取完、已过期的券）
-    coupons.value = (list || []).filter((c: CouponVO) => c.canReceive === true)
+    // 首页只显示：未领取、未过期、有库存的优惠券
+    coupons.value = (list || []).filter(c => c.canReceive === true)
   } catch (e) {
     console.error('加载优惠券失败', e)
     coupons.value = []
@@ -467,10 +501,10 @@ async function loadCoupons() {
 
 async function loadDeals() {
   try {
-    const list = await getRecommendDishes(8)
-    deals.value = recommendDishesToCard(list)
+    const list = await getFeaturedDishes({ limit: 5, diningType: deliveryType.value })
+    deals.value = list || []
   } catch (e) {
-    console.error('加载推荐商家失败', e)
+    console.error('加载精选菜品失败', e)
     deals.value = []
   }
 }
@@ -552,7 +586,22 @@ async function onCouponTap(c: CouponVO) {
       console.error('领取优惠券失败', e)
     }
   } else {
-    uni.navigateTo({ url: '/pages/coupon/index' })
+    // 去使用：根据优惠券适用范围跳转（scope: 1=全场 2=指定商家 3=指定类目）
+    const scope = c.scope
+    const scopeIds = c.scopeIds
+    if (scope === 2 && scopeIds && scopeIds.length > 0) {
+      // 指定商家专享券 → 跳转商家详情
+      uni.navigateTo({ url: `/pages/merchant/detail?id=${scopeIds[0]}` })
+    } else if (scope === 3 && scopeIds && scopeIds.length > 0) {
+      // 指定分类券 → 跳转分类搜索结果页（展示菜品）
+      uni.navigateTo({ url: `/pages/search/result?categoryId=${scopeIds[0]}` })
+    } else if (scope === 1) {
+      // 全场通用券 → 回到首页
+      uni.switchTab({ url: '/pages/index/index' })
+    } else {
+      // 其他情况跳转到优惠券列表页
+      uni.switchTab({ url: '/pages/coupon/index' })
+    }
   }
 }
 
@@ -562,7 +611,8 @@ function onCategoryTap(cat: any) {
     return
   }
   closeMorePanel()
-  uni.navigateTo({ url: `/pages/merchant/list?categoryId=${cat.id}&name=${encodeURIComponent(cat.name)}` })
+  // 分类点击展示菜品而非商家
+  uni.navigateTo({ url: `/pages/search/result?categoryId=${cat.id}&name=${encodeURIComponent(cat.name)}` })
 }
 
 function closeMorePanel() {
@@ -587,16 +637,16 @@ async function loadDefaultAddress() {
   }
 }
 function goSearch() {
-  uni.navigateTo({ url: '/pages/search/index' })
+  uni.navigateTo({ url: `/pages/search/index?diningType=${deliveryType.value}` })
 }
 function goMessage() {
   uni.navigateTo({ url: '/pages/message/index' })
 }
 function goMerchantList() {
-  uni.navigateTo({ url: '/pages/merchant/list' })
+  uni.navigateTo({ url: `/pages/merchant/list?diningType=${deliveryType.value}` })
 }
 function goMerchantDetail(id: number | string) {
-  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}` })
+  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}&diningType=${deliveryType.value}` })
 }
 function goDishDetail(id: number | string) {
   uni.navigateTo({ url: `/pages/dish/detail?id=${id}` })
@@ -836,10 +886,10 @@ function goDishDetail(id: number | string) {
   color: $secondary;
 }
 
-.deal-reason {
+.deal-sales {
   font-size: 9px;
-  color: #FF6B35;
-  background: rgba(255, 107, 53, 0.1);
+  color: $text-muted;
+  background: $bg;
   padding: 1px 4px;
   border-radius: 4px;
   max-width: 60px;

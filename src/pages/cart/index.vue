@@ -1,55 +1,117 @@
 <template>
   <view class="cart">
-    <view v-if="!items.length" class="empty">
+    <!-- 空状态 -->
+    <view v-if="cartStore.isEmpty" class="empty">
       <CategoryIcon name="empty-cart" :size="80" class="empty-icon" />
       <text class="empty-text">购物车空空如也</text>
       <view class="empty-btn" @tap="goHome">去逛逛</view>
     </view>
-    <view v-else>
-      <view class="merchant-bar">
-        <CategoryIcon name="shop" :size="18" class="m-icon" />
-        <text class="m-name">{{ cartStore.merchantName || '商家' }}</text>
-      </view>
-      <view class="cart-list">
-        <view v-for="item in items" :key="item.id" class="cart-item">
-          <view class="item-img-wrap">
-            <SmartImage
-              :src="item.dishImage"
-              bg="linear-gradient(135deg, #FF6B35, #FFC107)"
-              icon="meishi"
-              :iconSize="28"
-              radius="8px"
+
+    <!-- 多商家分组列表 -->
+    <view v-else class="group-list">
+      <view
+        v-for="group in cartStore.groups"
+        :key="group.merchantId"
+        class="merchant-group"
+      >
+        <!-- 商家信息栏 -->
+        <view class="merchant-header">
+          <view class="merchant-info">
+            <image
+              v-if="group.merchantLogo"
+              :src="group.merchantLogo"
+              class="merchant-logo"
               mode="aspectFill"
             />
+            <view v-else class="merchant-logo merchant-logo--default">
+              <CategoryIcon name="shop" :size="20" />
+            </view>
+            <text class="merchant-name">{{ group.merchantName || '商家' }}</text>
           </view>
-          <view class="item-info">
-            <view class="item-name">{{ item.dishName }}</view>
-            <view class="item-spec">{{ item.specName || '默认' }}</view>
-            <view class="item-bottom">
-              <text class="item-price">¥{{ item.unitPrice.toFixed(2) }}</text>
-              <view class="qty-control">
-                <text class="qty-btn" @tap="onDec(item)">−</text>
-                <text class="qty-num">{{ item.quantity }}</text>
-                <text class="qty-btn" @tap="onInc(item)">+</text>
+        </view>
+
+        <!-- 菜品列表（swipe-cell 左滑删除） -->
+        <view class="items-wrap">
+          <van-swipe-cell v-for="item in group.items" :key="item.id">
+            <view class="cart-item">
+              <view class="item-img-wrap">
+                <SmartImage
+                  :src="item.dishImage"
+                  bg="linear-gradient(135deg, #FF6B35, #FFC107)"
+                  icon="meishi"
+                  :iconSize="28"
+                  radius="8px"
+                  mode="aspectFill"
+                />
+              </view>
+              <view class="item-info">
+                <view class="item-name">{{ item.dishName }}</view>
+                <view class="item-spec">{{ item.specName || '默认' }}</view>
+                <view class="item-bottom">
+                  <text class="item-price">¥{{ Number(item.unitPrice).toFixed(2) }}</text>
+                  <van-stepper
+                    :model-value="item.quantity"
+                    :min="0"
+                    :max="99"
+                    button-size="24"
+                    input-width="36px"
+                    theme="round"
+                    @change="(val: number) => onQtyChange(item, val)"
+                  />
+                </view>
               </view>
             </view>
+            <template #right>
+              <view class="swipe-delete" @tap="onDelete(item)">
+                <van-icon name="delete-o" size="20" color="#fff" />
+                <text class="swipe-delete-text">删除</text>
+              </view>
+            </template>
+          </van-swipe-cell>
+        </view>
+
+        <!-- 金额明细 -->
+        <view class="fee-card">
+          <view class="fee-row">
+            <text class="fee-label">商品总额</text>
+            <text class="fee-value">¥{{ Number(group.totalAmount || 0).toFixed(2) }}</text>
+          </view>
+          <view v-if="cartStore.diningType !== 3" class="fee-row">
+            <text class="fee-label">配送费</text>
+            <text class="fee-value">¥{{ Number(group.deliveryFee || 0).toFixed(2) }}</text>
+          </view>
+          <view v-else class="fee-row">
+            <text class="fee-label">配送费</text>
+            <text class="fee-value" style="color: #00C853;">自取免配送费</text>
+          </view>
+          <view v-if="Number(group.packingFee || 0) > 0" class="fee-row">
+            <text class="fee-label">打包费</text>
+            <text class="fee-value">¥{{ Number(group.packingFee || 0).toFixed(2) }}</text>
+          </view>
+          <view class="fee-divider"></view>
+          <view class="fee-row fee-row--total">
+            <text class="fee-label">合计</text>
+            <text class="fee-total">¥{{ groupPayable(group).toFixed(2) }}</text>
+          </view>
+        </view>
+
+        <!-- 该商家结算栏 -->
+        <view class="group-footer">
+          <view class="group-total-area">
+            <text class="group-total-label">共{{ groupItemsCount(group) }}件，合计：</text>
+            <text class="group-total-price">¥{{ groupPayable(group).toFixed(2) }}</text>
+          </view>
+          <view v-if="group.reachMinAmount !== false" class="checkout-btn" @tap="goCheckout(group)">
+            去结算
+          </view>
+          <view v-else class="checkout-btn checkout-btn--disabled">
+            还差¥{{ groupDiff(group).toFixed(2) }}起送
           </view>
         </view>
       </view>
 
-      <view class="fee-card">
-        <view class="fee-row"><text>商品金额</text><text>¥{{ cartStore.totalAmount.toFixed(2) }}</text></view>
-        <view class="fee-row"><text>配送费</text><text>¥{{ cartStore.deliveryFee.toFixed(2) }}</text></view>
-        <view v-if="cartStore.packingFee > 0" class="fee-row"><text>打包费</text><text>¥{{ cartStore.packingFee.toFixed(2) }}</text></view>
-      </view>
-    </view>
-
-    <view v-if="items.length" class="footer-bar">
-      <view class="total-area">
-        <text class="total-label">合计：</text>
-        <text class="total-price">¥{{ payable.toFixed(2) }}</text>
-      </view>
-      <view class="checkout-btn" @tap="goCheckout">去结算({{ totalCount }})</view>
+      <!-- 底部安全间距 -->
+      <view class="bottom-safe"></view>
     </view>
 
     <!-- #ifdef H5 -->
@@ -59,46 +121,79 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { SwipeCell as VanSwipeCell, Stepper as VanStepper, Icon as VanIcon } from 'vant'
+import 'vant/es/swipe-cell/style'
+import 'vant/es/stepper/style'
+import 'vant/es/icon/style'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
 import { useCartStore } from '@/store/cart'
 import { useTabStore } from '@/store/tab'
-import type { CartItemVO } from '@/types/api'
+import type { CartItemVO, CartGroupVO } from '@/types/api'
 
 const cartStore = useCartStore()
 const tabStore = useTabStore()
-
-const items = computed(() => cartStore.items)
-const totalCount = computed(() => cartStore.totalCount)
-const payable = computed(() => {
-  if (cartStore.payAmount > 0) return cartStore.payAmount
-  return cartStore.totalAmount + cartStore.deliveryFee + cartStore.packingFee
-})
 
 onShow(() => {
   tabStore.setActiveTab('/pages/cart/index')
   cartStore.fetchCart()
 })
 
-function onInc(item: CartItemVO) {
-  cartStore.changeQty(item.id, item.quantity + 1)
+/** 计算分组的商品件数 */
+function groupItemsCount(group: CartGroupVO): number {
+  return group.items.reduce((s, i) => s + i.quantity, 0)
 }
-function onDec(item: CartItemVO) {
-  const quantity = item.quantity - 1
-  if (quantity <= 0) {
+
+/** 计算分组应付金额 */
+function groupPayable(group: CartGroupVO): number {
+  if (Number(group.payAmount || 0) > 0) return Number(group.payAmount)
+  const deliveryFee = cartStore.diningType === 3 ? 0 : Number(group.deliveryFee || 0)
+  return Number(group.totalAmount || 0) + deliveryFee + Number(group.packingFee || 0)
+}
+
+/** 计算距离起送价的差额 */
+function groupDiff(group: CartGroupVO): number {
+  const min = Number(group.minOrderAmount || 0)
+  const total = Number(group.totalAmount || 0)
+  return Math.max(0, min - total)
+}
+
+/** 数量变化 */
+function onQtyChange(item: CartItemVO, val: number) {
+  const qty = Number(val) || 0
+  if (qty <= 0) {
     cartStore.remove(item.id)
   } else {
-    cartStore.changeQty(item.id, quantity)
+    cartStore.changeQty(item.id, qty)
   }
 }
+
+/** 删除菜品 */
+function onDelete(item: CartItemVO) {
+  uni.showModal({
+    title: '提示',
+    content: `确定移除「${item.dishName}」吗？`,
+    confirmColor: '#FF4B33',
+    success: (res) => {
+      if (res.confirm) {
+        cartStore.remove(item.id)
+      }
+    },
+  })
+}
+
 function goHome() {
   uni.switchTab({ url: '/pages/index/index' })
 }
-function goCheckout() {
-  uni.navigateTo({ url: '/pages/order/checkout' })
+
+/** 跳转到该商家的结算页 */
+function goCheckout(group: CartGroupVO) {
+  if (group.reachMinAmount === false) return
+  uni.navigateTo({
+    url: `/pages/order/checkout?merchantId=${group.merchantId}&diningType=${cartStore.diningType}`,
+  })
 }
 </script>
 
@@ -112,9 +207,11 @@ $tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
 .cart {
   min-height: 100vh;
   background: $bg;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px + 20px);
   padding-bottom: $tabbar-safe;
 }
 
+/* ---------- 空状态 ---------- */
 .empty {
   display: flex;
   flex-direction: column;
@@ -142,33 +239,65 @@ $tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
   font-size: 14px;
 }
 
-.merchant-bar {
+/* ---------- 分组列表容器 ---------- */
+.group-list {
+  padding-bottom: 8px;
+}
+
+/* ---------- 商家分组卡片 ---------- */
+.merchant-group {
   background: #fff;
+  margin: 12px 12px 0;
+  border-radius: $radius-md;
+  box-shadow: $shadow;
+  overflow: hidden;
+}
+
+/* 商家信息头部 */
+.merchant-header {
   padding: 14px 16px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   border-bottom: 1px solid $border;
 }
 
-.m-icon {
-  margin-right: 8px;
+.merchant-info {
+  display: flex;
+  align-items: center;
+}
+
+.merchant-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.merchant-logo--default {
+  background: linear-gradient(135deg, rgba(255, 75, 51, 0.1), rgba(255, 107, 107, 0.15));
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: $primary;
 }
 
-.m-name {
+.merchant-name {
   font-size: 15px;
   font-weight: 600;
+  color: $text;
 }
 
-.cart-list {
+/* ---------- 菜品列表 ---------- */
+.items-wrap {
   background: #fff;
-  margin-top: 8px;
 }
 
 .cart-item {
   display: flex;
   padding: 14px 16px;
-  border-bottom: 1px solid $border;
+  background: #fff;
 }
 
 .item-img-wrap {
@@ -190,6 +319,7 @@ $tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
 .item-name {
   font-size: 15px;
   font-weight: 500;
+  color: $text;
 }
 
 .item-spec {
@@ -202,6 +332,8 @@ $tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
 }
 
 .item-price {
@@ -210,83 +342,153 @@ $tabbar-safe: calc(#{$tabbar-height} + env(safe-area-inset-bottom));
   font-weight: 700;
 }
 
-.qty-control {
+/* 左滑删除按钮 */
+.swipe-delete {
+  width: 80px;
+  height: 100%;
+  background: $danger;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
-.qty-btn {
-  width: 26px;
-  height: 26px;
-  line-height: 24px;
-  text-align: center;
-  border: 1px solid $primary;
-  color: $primary;
-  border-radius: 13px;
-  font-size: 14px;
-  font-weight: 700;
+.swipe-delete-text {
+  color: #fff;
+  font-size: 12px;
 }
 
-.qty-num {
-  min-width: 36px;
-  text-align: center;
-  font-size: 14px;
-}
-
+/* ---------- 金额明细 ---------- */
 .fee-card {
   background: #fff;
-  margin: 12px 16px;
-  border-radius: $radius-md;
-  padding: 14px 16px;
-  box-shadow: $shadow;
+  padding: 12px 16px;
+  border-top: 1px dashed $border;
 }
 
 .fee-row {
   display: flex;
   justify-content: space-between;
-  padding: 6px 0;
+  align-items: center;
+  padding: 5px 0;
   font-size: 13px;
+}
+
+.fee-label {
   color: $text-light;
 }
 
-.footer-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: $tabbar-safe;
-  height: 56px;
-  background: #fff;
+.fee-value {
+  color: $text-light;
+}
+
+.fee-divider {
+  height: 1px;
+  background: $border;
+  margin: 6px 0;
+}
+
+.fee-row--total {
+  padding-top: 8px;
+}
+
+.fee-total {
+  color: $primary;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ---------- 分组结算栏 ---------- */
+.group-footer {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #fff;
   border-top: 1px solid $border;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
-  z-index: 99;
 }
 
-.total-area {
+.group-total-area {
   flex: 1;
+  display: flex;
+  align-items: baseline;
 }
 
-.total-label {
-  font-size: 13px;
-  color: $text-light;
+.group-total-label {
+  font-size: 12px;
+  color: $text-muted;
 }
 
-.total-price {
+.group-total-price {
   color: $primary;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .checkout-btn {
   background: linear-gradient(135deg, $primary, $primary-light);
   color: #fff;
-  padding: 0 24px;
-  height: 42px;
-  line-height: 42px;
-  border-radius: 22px;
-  font-size: 15px;
+  padding: 0 22px;
+  height: 38px;
+  line-height: 38px;
+  border-radius: 19px;
+  font-size: 14px;
   font-weight: 600;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.checkout-btn--disabled {
+  background: linear-gradient(135deg, #ccc, #ddd);
+  font-size: 12px;
+}
+
+/* 底部安全间距 */
+.bottom-safe {
+  height: 20px;
+}
+
+/* ---------- Vant 组件样式覆盖 ---------- */
+:deep(.van-stepper) {
+  background: transparent;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+:deep(.van-stepper__minus),
+:deep(.van-stepper__plus) {
+  width: 28px;
+  height: 28px;
+  border: 1px solid $primary;
+  border-radius: 50%;
+  color: $primary;
+  background: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+:deep(.van-stepper__minus--disabled) {
+  border-color: #ddd;
+  color: #ccc;
+  background: #f7f7f7;
+}
+
+:deep(.van-stepper__input) {
+  width: 36px;
+  height: 28px;
+  font-size: 14px;
+  color: $text;
+  background: transparent;
+  flex-shrink: 0;
+  margin: 0 4px;
 }
 </style>

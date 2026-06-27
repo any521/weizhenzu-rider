@@ -64,8 +64,8 @@ import { ref } from 'vue'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 
 const entries = [
-  { icon: 'order', title: '订单问题', desc: '催单、取消、配送异常', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/order/list' }) },
-  { icon: 'refund', title: '退款售后', desc: '退款进度、售后申请', bg: 'rgba(255, 152, 0, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/order/list' }) },
+  { icon: 'order', title: '订单问题', desc: '催单、取消、配送异常', bg: 'rgba(255, 75, 51, 0.12)', onTap: () => uni.switchTab({ url: '/pages/order/list' }) },
+  { icon: 'refund', title: '退款售后', desc: '退款进度、售后申请', bg: 'rgba(255, 152, 0, 0.12)', onTap: () => uni.switchTab({ url: '/pages/order/list' }) },
   { icon: 'coupon-card', title: '优惠券', desc: '券的使用与领取', bg: 'rgba(255, 195, 0, 0.12)', onTap: () => uni.switchTab({ url: '/pages/coupon/index' }) },
   { icon: 'address', title: '地址问题', desc: '修改地址、定位异常', bg: 'rgba(33, 150, 243, 0.12)', onTap: () => uni.navigateTo({ url: '/pages/address/list' }) }
 ]
@@ -92,6 +92,7 @@ function goBack() {
 .service-page {
   min-height: 100vh;
   background: $bg;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px);
   padding-bottom: 80px;
 }
 
@@ -100,8 +101,10 @@ function goBack() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
 }
 

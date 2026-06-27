@@ -61,6 +61,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
 import { sendEmailCode } from '@/api'
 import { isMobile, isEmail } from '@/utils/validator'
+import { message } from '@/utils/message'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 
 type LoginMode = 'email' | 'pwd'
@@ -87,11 +88,11 @@ function isValidEmail(e: string) { return isEmail(e) }
 async function onSendEmailCode() {
   if (countdown.value > 0) return
   if (!isValidEmail(email.value)) {
-    return uni.showToast({ title: '请输入正确的邮箱地址', icon: 'none' })
+    return message.warning('请输入正确的邮箱地址')
   }
   try {
     await sendEmailCode(email.value, 'LOGIN')
-    uni.showToast({ title: '验证码已发送至邮箱', icon: 'success' })
+    message.success('验证码已发送至邮箱')
     countdown.value = 60
     timer = setInterval(() => {
       countdown.value--
@@ -103,10 +104,10 @@ async function onSendEmailCode() {
 }
 
 function onEmailLogin() {
-  if (!agreed.value) return uni.showToast({ title: '请先同意用户协议和隐私政策', icon: 'none' })
-  if (!isValidEmail(email.value)) return uni.showToast({ title: '邮箱格式错误', icon: 'none' })
-  if (!code.value) return uni.showToast({ title: '请输入验证码', icon: 'none' })
-  if (!/^\d{6}$/.test(code.value)) return uni.showToast({ title: '验证码为6位数字', icon: 'none' })
+  if (!agreed.value) return message.warning('请先同意用户协议和隐私政策')
+  if (!isValidEmail(email.value)) return message.warning('邮箱格式错误')
+  if (!code.value) return message.warning('请输入验证码')
+  if (!/^\d{6}$/.test(code.value)) return message.warning('验证码为6位数字')
   doLogin()
 }
 
@@ -115,9 +116,9 @@ function isValidAccount(account: string) {
 }
 
 function onPwdLogin() {
-  if (!agreed.value) return uni.showToast({ title: '请先同意用户协议和隐私政策', icon: 'none' })
-  if (!isValidAccount(phone.value)) return uni.showToast({ title: '请输入正确的手机号或用户名', icon: 'none' })
-  if (!password.value) return uni.showToast({ title: '请输入密码', icon: 'none' })
+  if (!agreed.value) return message.warning('请先同意用户协议和隐私政策')
+  if (!isValidAccount(phone.value)) return message.warning('请输入正确的手机号或用户名')
+  if (!password.value) return message.warning('请输入密码')
   doLogin()
 }
 
@@ -128,7 +129,6 @@ async function doLogin() {
     } else {
       await userStore.loginByPassword(phone.value, password.value)
     }
-    uni.showToast({ title: '登录成功', icon: 'success' })
     setTimeout(() => {
       if (redirect.value.startsWith('/pages/index/index') || redirect.value.startsWith('/pages/coupon/index') || redirect.value.startsWith('/pages/order/list') || redirect.value.startsWith('/pages/profile/index')) {
         uni.switchTab({ url: redirect.value })

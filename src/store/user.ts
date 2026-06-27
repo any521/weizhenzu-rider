@@ -29,41 +29,40 @@ export const useUserStore = defineStore('user', () => {
 
   async function loginBySms(phone: string, code: string) {
     const res = await smsLogin(phone, code)
-    const t = res.token || ''
-    token.value = t
+    token.value = res.token || ''
     refreshToken.value = res.refreshToken || ''
-    setToken(t)
+    setToken(res.token || '')
     setRefreshToken(res.refreshToken || '')
     // 登录成功后拉取完整资料
     const profile = await fetchProfile()
-    // 使用token直接连接WebSocket，避免storage写入时序问题
-    wsService.connectWithToken(t)
+    // 登录成功后建立 WebSocket 连接，接收实时订单推送
+    if (res.token) wsService.connectWithToken(res.token)
     return { ...res, ...profile }
   }
 
   async function loginByPassword(phone: string, password: string) {
     const res = await passwordLogin(phone, password)
-    const t = res.token || ''
-    token.value = t
+    token.value = res.token || ''
     refreshToken.value = res.refreshToken || ''
-    setToken(t)
+    setToken(res.token || '')
     setRefreshToken(res.refreshToken || '')
     // 登录成功后拉取完整资料
     const profile = await fetchProfile()
-    wsService.connectWithToken(t)
+    // 登录成功后建立 WebSocket 连接，接收实时订单推送
+    if (res.token) wsService.connectWithToken(res.token)
     return { ...res, ...profile }
   }
 
   /** 邮箱 + 验证码登录 */
   async function loginByEmail(email: string, code: string) {
     const res = await emailLogin(email, code)
-    const t = res.token || ''
-    token.value = t
+    token.value = res.token || ''
     refreshToken.value = res.refreshToken || ''
-    setToken(t)
+    setToken(res.token || '')
     setRefreshToken(res.refreshToken || '')
     const profile = await fetchProfile()
-    wsService.connectWithToken(t)
+    // 登录成功后建立 WebSocket 连接，接收实时订单推送
+    if (res.token) wsService.connectWithToken(res.token)
     return { ...res, ...profile }
   }
 
@@ -87,8 +86,8 @@ export const useUserStore = defineStore('user', () => {
 
   async function logout() {
     try { await apiLogout() } catch (e) { /* ignore */ }
-    // 断开WebSocket
-    wsService.disconnect()
+    // 退出登录前主动断开 WebSocket，避免服务端继续向已注销的 token 推送导致消息丢失
+    try { wsService.disconnect() } catch (e) { /* ignore */ }
     token.value = ''
     refreshToken.value = ''
     userInfo.value = null

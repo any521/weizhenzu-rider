@@ -77,6 +77,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useUserStore } from '@/store/user'
 import { sendEmailCode, bindPhone, unbindPhone } from '@/api'
 import { isMobile } from '@/utils/validator'
+import { message } from '@/utils/message'
 
 const userStore = useUserStore()
 const phone = ref('')
@@ -137,7 +138,7 @@ async function onSendCode() {
   if (countdown.value > 0) return
   try {
     await sendEmailCode('', 'BIND_PHONE')
-    uni.showToast({ title: '验证码已发送至邮箱', icon: 'success' })
+    message.success('验证码已发送至邮箱')
     countdown.value = 60
     timer = setInterval(() => {
       countdown.value--
@@ -151,10 +152,10 @@ async function onSendCode() {
 async function onSubmit() {
   if (submitting.value) return
   if (!isMobile(phone.value)) {
-    return uni.showToast({ title: '请输入正确的手机号', icon: 'none' })
+    return message.warning('请输入正确的手机号')
   }
   if (!/^\d{6}$/.test(emailCode.value)) {
-    return uni.showToast({ title: '请输入6位邮箱验证码', icon: 'none' })
+    return message.warning('请输入6位邮箱验证码')
   }
 
   submitting.value = true
@@ -162,11 +163,7 @@ async function onSubmit() {
     await bindPhone({ phone: phone.value, code: emailCode.value })
     await userStore.fetchProfile()
 
-    uni.showToast({
-      title: isChangeMode.value ? '手机号更换成功' : '手机号绑定成功',
-      icon: 'success',
-      duration: 1500,
-    })
+    message.success(isChangeMode.value ? '手机号更换成功' : '手机号绑定成功')
 
     changing.value = false
 
@@ -208,7 +205,7 @@ async function onUnbind() {
     await unbindPhone()
     await userStore.fetchProfile()
     uni.hideLoading()
-    uni.showToast({ title: '已解绑手机号', icon: 'success' })
+    message.success('已解绑手机号')
   } catch (e: any) {
     uni.hideLoading()
     console.error('解绑手机号失败', e)

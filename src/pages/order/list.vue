@@ -67,10 +67,14 @@
                 <text class="orders-dish-spec">{{ order.spec }}</text>
                 <view class="orders-dish-bottom">
                   <text class="orders-dish-count">共 {{ order.count }} 件</text>
-                  <text class="orders-dish-price">
-                    <text class="orders-dish-price-symbol">¥</text>
-                    <text class="orders-dish-price-num">{{ order.amount }}</text>
-                  </text>
+                  <view class="orders-fee-info">
+                    <text v-if="order.diningType !== 3 && order.deliveryFee > 0" class="orders-delivery-fee">含配送费¥{{ Number(order.deliveryFee).toFixed(2) }}</text>
+                    <text v-else-if="order.diningType === 3" class="orders-delivery-fee orders-free">自取免配送费</text>
+                    <text class="orders-dish-price">
+                      <text class="orders-dish-price-symbol">¥</text>
+                      <text class="orders-dish-price-num">{{ order.amount }}</text>
+                    </text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -110,18 +114,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { ref, computed, onUnmounted } from 'vue'
+import { onLoad, onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import { useTabStore } from '@/store/tab'
-import { getOrderPage } from '@/api'
+import { getOrderPage, getOrderDelivery, cancelOrder} from '@/api'
 import type { OrderVO } from '@/types/api'
 import CategoryIcon from '@/components/CategoryIcon/CategoryIcon.vue'
 import SmartImage from '@/components/SmartImage/SmartImage.vue'
 import GlobalTabbar from '@/components/GlobalTabbar/GlobalTabbar.vue'
+import { ORDER_STATUS_MAP, orderStatusText, orderStatusType } from '@/utils/format'
 
 const tabStore = useTabStore()
 const tabs = ref(['待付款', '待接单', '配送中', '已完成', '待评价', '退款/售后', '全部'])
-const tabStatusMap = [0, 1, 5, 7, 6, 9, undefined]
+// 配送中tab覆盖2/3/11/5状态（备餐中、骑手已接单、骑手已到店、配送中）；4(WAITING_RIDER)已废弃不再作为独立状态
+const tabStatusMap: (number | number[] | undefined)[] = [0, 1, [2, 3, 11, 5], 7, 6, [9, 10], undefined]
 const activeIdx = ref(0)
 const loading = ref(false)
 const bodyHeight = ref(600)
@@ -138,35 +144,38 @@ onLoad(() => {
 onShow(() => {
   tabStore.setActiveTab('/pages/order/list')
   fetchOrders()
+  // 订阅订单状态变更（WebSocket 推送）
+  uni.$on('orderStatusChanged', onOrderStatusChanged)
 })
 
-const statusTextMap: Record<number, string> = {
-  0: '待付款',
-  1: '待接单',
-  2: '已接单',
-  3: '制作中',
-  4: '待取餐',
-  5: '配送中',
-  6: '已送达',
-  7: '已完成',
-  8: '已取消',
-  9: '退款中',
-  10: '已退款'
+onHide(() => {
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+onUnload(() => {
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+onUnmounted(() => {
+  uni.$off('orderStatusChanged', onOrderStatusChanged)
+})
+
+/** WebSocket 推送的订单状态变更回调，刷新列表 */
+function onOrderStatusChanged(_msg: any) {
+  fetchOrders()
 }
 
-const statusTypeMap: Record<number, string> = {
-  0: 'warning',
-  1: 'warning',
-  2: 'warning',
-  3: 'warning',
-  4: 'warning',
-  5: 'danger',
-  6: 'success',
-  7: 'default',
-  8: 'muted',
-  9: 'danger',
-  10: 'muted'
-}
+const statusTextMap = ORDER_STATUS_MAP
+const statusTypeMap: Record<number, string> = {}
+Object.keys(ORDER_STATUS_MAP).forEach(k => {
+  statusTypeMap[Number(k)] = ORDER_STATUS_MAP[Number(k)].type
+})
+
+// 状态对应的图标
+const statusIconMap: Record<number, string> = {}
+Object.keys(ORDER_STATUS_MAP).forEach(k => {
+  statusIconMap[Number(k)] = ORDER_STATUS_MAP[Number(k)].icon
+})
 
 const merchantBgList = [
   'linear-gradient(135deg, #FF6B35, #FFC107)',
@@ -189,9 +198,10 @@ function buildDisplayOrder(order: OrderVO) {
   const spec = [firstItem?.specName].filter(Boolean).join(' / ') || ''
   const count = order.items?.reduce((sum, it) => sum + (it.quantity || 0), 0) || 0
   const status = order.status ?? 7
-  const statusText = order.statusDesc || statusTextMap[status] || '已完成'
-  const statusType = statusTypeMap[status] || 'default'
-  const icon = status === 9 || status === 10 ? 'refund' : 'package'
+  const statusInfo = ORDER_STATUS_MAP[status] || { text: '已完成', type: 'default', icon: 'check' }
+  const statusText = order.statusDesc || statusInfo.text
+  const statusType = statusInfo.type
+  const icon = (status === 9 || status === 10) ? 'refund' : statusInfo.icon
 
   // 获取商家logo和商品图片URL
   const merchantLogo = isImageUrl(order.merchantLogo) ? order.merchantLogo : ''
@@ -201,19 +211,35 @@ function buildDisplayOrder(order: OrderVO) {
   if (status === 0) {
     btns.push({ text: '取消订单', type: 'default' })
     btns.push({ text: '去支付', type: 'primary' })
-  } else if (status === 1) {
+  } else if (status === 1 || status === 2 || status === 4) {
+    // 待接单/备餐中/等待骑手：可申请退款、催单
     btns.push({ text: '申请退款', type: 'default' })
     btns.push({ text: '催单', type: 'primary' })
+  } else if (status === 3 || status === 11) {
+    // 骑手已接单/骑手已到店：可联系骑手
+    btns.push({ text: '查看配送', type: 'default' })
+    btns.push({ text: '联系骑手', type: 'primary' })
   } else if (status === 5) {
     btns.push({ text: '查看配送', type: 'default' })
     btns.push({ text: '联系骑手', type: 'primary' })
   } else if (status === 6 || status === 7) {
-    if (status === 6) btns.push({ text: '去评价', type: 'primary' })
-    else btns.push({ text: '再来一单', type: 'default' })
-    if (status === 7) btns.push({ text: '去评价', type: 'primary' })
+    // 已评价后不再显示"去评价"按钮
+    const isRated = order.isRated === 1
+    if (status === 6) {
+      if (!isRated) btns.push({ text: '去评价', type: 'primary' })
+    } else {
+      btns.push({ text: '再来一单', type: 'default' })
+      if (!isRated) btns.push({ text: '去评价', type: 'primary' })
+    }
+  } else if (status === 8) {
+    btns.push({ text: '删除订单', type: 'default' })
+    btns.push({ text: '再来一单', type: 'primary' })
   } else if (status === 9) {
     btns.push({ text: '撤销申请', type: 'default' })
     btns.push({ text: '查看进度', type: 'primary' })
+  } else if (status === 10) {
+    btns.push({ text: '删除订单', type: 'default' })
+    btns.push({ text: '再来一单', type: 'primary' })
   }
 
   return {
@@ -228,6 +254,9 @@ function buildDisplayOrder(order: OrderVO) {
     spec,
     count,
     amount: order.payAmount?.toFixed(2) || '0.00',
+    goodsAmount: order.totalAmount?.toFixed(2) || '0.00',
+    deliveryFee: order.diningType === 3 ? 0 : (order.deliveryFee || 0),
+    diningType: order.diningType || 2,
     time: order.createdAt || '',
     icon,
     btns,
@@ -246,21 +275,25 @@ function isImageUrl(url?: string): boolean {
 const displayOrders = computed(() => rawOrders.value.map(buildDisplayOrder))
 
 const filteredOrders = computed(() => {
-  const status = tabStatusMap[activeIdx.value]
-  if (status === undefined) return displayOrders.value
-  if (status === 9) {
+  const tabVal = tabStatusMap[activeIdx.value]
+  if (tabVal === undefined) return displayOrders.value
+  if (Array.isArray(tabVal)) {
+    return displayOrders.value.filter(o => tabVal.includes(o.raw.status ?? 7))
+  }
+  if (tabVal === 9) {
     return displayOrders.value.filter(o => o.raw.status === 9 || o.raw.status === 10)
   }
-  return displayOrders.value.filter(o => o.raw.status === status)
+  return displayOrders.value.filter(o => o.raw.status === tabVal)
 })
 
 async function fetchOrders() {
   if (loading.value) return
   loading.value = true
   try {
-    const status = tabStatusMap[activeIdx.value]
+    const tabVal = tabStatusMap[activeIdx.value]
     const params: { status?: number; current: number; size: number } = { current: 1, size: 20 }
-    if (status !== undefined) params.status = status
+    // 只有单一数字状态才传给后端过滤，数组/undefined（全部）不传status
+    if (typeof tabVal === 'number' && tabVal !== 9) params.status = tabVal
     const res = await getOrderPage(params)
     rawOrders.value = res.list || []
   } catch (e: any) {
@@ -280,12 +313,47 @@ function goDetail(id: string | number) {
   uni.navigateTo({ url: `/pages/order/detail?id=${id}` })
 }
 
-function onBtnClick(order: any, btn: any) {
+function callRider(phone: string) {
+  uni.showModal({
+    title: '联系骑手',
+    content: `拨打 ${phone}`,
+    confirmText: '拨打',
+    success: (r) => {
+      if (r.confirm) {
+        uni.makePhoneCall({ phoneNumber: phone })
+      }
+    }
+  })
+}
+
+async function onBtnClick(order: any, btn: any) {
   const id = order.id
   if (btn.text === '再来一单') {
     uni.showToast({ title: '已加入购物车', icon: 'none' })
+  } else if (btn.text === '取消订单') {
+    uni.showModal({
+      title: '取消订单',
+      content: '确定要取消该订单吗？取消后不可恢复。',
+      confirmText: '确定取消',
+      confirmColor: '#FF6B35',
+      success: async (r) => {
+        if (r.confirm) {
+          try {
+            uni.showLoading({ title: '取消中...' })
+            await cancelOrder(id, '用户主动取消')
+            uni.hideLoading()
+            uni.showToast({ title: '订单已取消', icon: 'success' })
+            // 刷新订单列表
+            await fetchOrders()
+          } catch (e: any) {
+            uni.hideLoading()
+            uni.showToast({ title: e?.message || '取消失败', icon: 'none' })
+          }
+        }
+      }
+    })
   } else if (btn.text === '去支付') {
-    uni.navigateTo({ url: `/pages/order/payment?id=${id}&amount=${order.raw.payAmount}` })
+    uni.navigateTo({ url: `/pages/order/payment?id=${id}&amount=${order.raw.payAmount}&deliveryFee=${order.raw.deliveryFee || 0}&totalAmount=${order.raw.totalAmount || 0}` })
   } else if (btn.text === '申请退款') {
     uni.navigateTo({ url: `/pages/order/refund?id=${id}&amount=${order.raw.payAmount}` })
   } else if (btn.text === '查看进度') {
@@ -293,11 +361,24 @@ function onBtnClick(order: any, btn: any) {
   } else if (btn.text === '查看配送') {
     uni.navigateTo({ url: `/pages/order/delivery?id=${id}` })
   } else if (btn.text === '联系骑手') {
-    const phone = order.raw.riderPhone
-    if (phone) {
-      uni.makePhoneCall({ phoneNumber: phone })
+    if (order.raw.riderPhone) {
+      callRider(order.raw.riderPhone)
     } else {
-      uni.showToast({ title: '暂无骑手联系方式', icon: 'none' })
+      // 从配送跟踪接口获取骑手电话
+      try {
+        uni.showLoading({ title: '获取中' })
+        const delivery = await getOrderDelivery(order.id)
+        uni.hideLoading()
+        const phone = delivery?.rider?.phone
+        if (phone) {
+          callRider(phone)
+        } else {
+          uni.showToast({ title: '暂无骑手联系方式', icon: 'none' })
+        }
+      } catch (e) {
+        uni.hideLoading()
+        uni.showToast({ title: '获取骑手信息失败', icon: 'none' })
+      }
     }
   } else if (btn.text === '去评价') {
     uni.navigateTo({ url: `/pages/order/rating?id=${id}&merchantId=${order.raw.merchantId}` })

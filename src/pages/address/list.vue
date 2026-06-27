@@ -121,7 +121,10 @@ async function setDefault(a: AddressVO) {
 .addresses {
   min-height: 100vh;
   background: $bg;
-  padding: 12px 16px 100px;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px + 12px);
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-bottom: 100px;
 }
 
 .loading, .empty {

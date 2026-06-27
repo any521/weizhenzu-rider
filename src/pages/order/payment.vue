@@ -12,6 +12,14 @@
     <view class="amount-card">
       <text class="lbl">应付金额</text>
       <text class="amount">¥{{ amount.toFixed(2) }}</text>
+      <view v-if="feeDetailVisible" class="fee-detail">
+        <view class="fee-row"><text>商品金额</text><text>¥{{ goodsAmount.toFixed(2) }}</text></view>
+        <view v-if="packingFee > 0" class="fee-row"><text>打包费</text><text>¥{{ packingFee.toFixed(2) }}</text></view>
+        <view v-if="diningType === 3" class="fee-row"><text>配送费</text><text class="fee-free">自取免配送费</text></view>
+        <view v-else-if="diningType === 1" class="fee-row"><text>配送费</text><text class="fee-free">堂食免配送费</text></view>
+        <view v-else class="fee-row"><text>配送费</text><text>¥{{ deliveryFee.toFixed(2) }}</text></view>
+        <view v-if="couponAmount > 0" class="fee-row coupon-row"><text>优惠券</text><text>-¥{{ couponAmount.toFixed(2) }}</text></view>
+      </view>
       <text class="order-no">订单号：{{ orderNo }}</text>
       <text v-if="countdownText" class="countdown">支付剩余时间 {{ countdownText }}</text>
     </view>
@@ -49,7 +57,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { createPayment, getPaymentStatus } from '@/api'
+import { createPayment, getPaymentStatus, getOrderDetail } from '@/api'
 import { useUserStore } from '@/store/user'
 
 const PAYMENT_DURATION_SEC = 30 * 60 // 30分钟
@@ -60,6 +68,12 @@ const orderNo = ref('')
 const orderId = ref<string | number>('')
 const paymentNo = ref('')
 const amount = ref(0)
+const goodsAmount = ref(0)
+const packingFee = ref(0)
+const deliveryFee = ref(0)
+const couponAmount = ref(0)
+const diningType = ref(2) // 默认外卖
+const feeDetailVisible = ref(false)
 const payMethod = ref('ALIPAY')
 const timeLeft = ref(PAYMENT_DURATION_SEC)
 const paying = ref(false)
@@ -95,12 +109,46 @@ const countdownText = computed(() => {
   return `${m}:${s}`
 })
 
-onLoad((q: any) => {
+onLoad(async (q: any) => {
   if (q?.id) {
     orderId.value = q.id
   }
   orderNo.value = q?.paymentNo || q?.orderNo || (q?.id ? String(q.id) : '')
+
+  // 优先用URL参数做快速展示（避免页面闪烁）
   if (q?.amount) amount.value = Number(q.amount) || 0
+  if (q?.totalAmount !== undefined) goodsAmount.value = Number(q.totalAmount) || 0
+  if (q?.packingFee !== undefined) packingFee.value = Number(q.packingFee) || 0
+  if (q?.deliveryFee !== undefined) deliveryFee.value = Number(q.deliveryFee) || 0
+  if (q?.couponAmount !== undefined) couponAmount.value = Number(q.couponAmount) || 0
+  if (q?.diningType !== undefined) diningType.value = Number(q.diningType) || 2
+  feeDetailVisible.value = true
+
+  // 始终从后端拉取权威数据（URL参数可能因版本/缓存不一致，后端为准）
+  if (q?.id) {
+    try {
+      const orderDetail: any = await getOrderDetail(q.id)
+      if (orderDetail) {
+        amount.value = Number(orderDetail.payAmount) || 0
+        goodsAmount.value = Number(orderDetail.totalAmount) || 0
+        packingFee.value = Number(orderDetail.packingFee) || 0
+        couponAmount.value = Number(orderDetail.couponAmount) || 0
+        diningType.value = Number(orderDetail.diningType) || 2
+        // 外卖(2)显示配送费；堂食(1)/自取(3)配送费为0
+        if (diningType.value === 2) {
+          deliveryFee.value = Number(orderDetail.deliveryFee) || 0
+        } else {
+          deliveryFee.value = 0
+        }
+        feeDetailVisible.value = true
+        if (!orderNo.value && orderDetail.orderNo) {
+          orderNo.value = orderDetail.orderNo
+        }
+      }
+    } catch (e) {
+      console.error('获取订单详情失败', e)
+    }
+  }
 })
 
 onMounted(() => {
@@ -258,7 +306,7 @@ async function onPay() {
       paying.value = false
       uni.showToast({ title: '支付成功', icon: 'success' })
       // 刷新用户信息（余额已变更）
-      userStore.fetchUserInfo?.()
+      userStore.fetchProfile?.()
       setTimeout(() => goSuccess(), 800)
       return
     }
@@ -286,12 +334,16 @@ async function onPay() {
     }
 
     if (payMethod.value === 'WECHAT') {
-      // 微信支付（Mock模式：直接模拟成功）
+      // 微信支付（Mock模式：模拟支付过程后轮询确认支付状态）
       paying.value = false
       uni.showLoading({ title: '微信支付中...' })
+      // 模拟微信支付过程，然后通过轮询同步后端支付状态
       setTimeout(() => {
         uni.hideLoading()
-        goSuccess()
+        // 启动轮询确认支付状态（与支付宝非H5流程一致）
+        // 轮询会调用sync=true接口，触发MockWechatStrategy.queryPayment返回paid=true
+        // 后端handleCallback将标记支付单为SUCCESS、订单为PAID
+        startPollingStatus()
       }, 1500)
       return
     }
@@ -386,6 +438,30 @@ async function onPay() {
   background: rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   font-size: 12px;
+}
+
+.fee-detail {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.fee-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  opacity: 0.9;
+  margin-top: 6px;
+  &:first-child { margin-top: 0; }
+}
+
+.fee-free {
+  color: #A5D6A7;
+}
+
+.coupon-row :last-child {
+  color: #A5D6A7;
 }
 
 .pay-methods {

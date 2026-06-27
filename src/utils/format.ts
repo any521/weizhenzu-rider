@@ -36,11 +36,41 @@ export const maskPhone = (phone: string | undefined | null): string => {
   return phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
 }
 
+/** 订单状态文案（新状态码映射） */
+export const ORDER_STATUS_MAP: Record<number, { text: string; type: string; icon: string }> = {
+  0:  { text: '待支付',   type: 'warning', icon: 'pay' },
+  1:  { text: '待接单',   type: 'warning', icon: 'shop' },
+  2:  { text: '商家备餐中', type: 'warning', icon: 'cooking' },
+  3:  { text: '骑手已接单', type: 'primary', icon: 'bike' },
+  4:  { text: '商家备餐中', type: 'warning', icon: 'cooking' }, // 旧数据兼容：WAITING_RIDER已废弃，统一显示为商家备餐中
+  5:  { text: '配送中',   type: 'danger',  icon: 'package' },
+  6:  { text: '已送达',   type: 'success', icon: 'check' },
+  7:  { text: '已完成',   type: 'default', icon: 'check' },
+  8:  { text: '已取消',   type: 'muted',   icon: 'close' },
+  9:  { text: '退款中',   type: 'danger',  icon: 'refund' },
+  10: { text: '已退款',   type: 'muted',   icon: 'refund' },
+  11: { text: '骑手已到店', type: 'primary', icon: 'location' },
+}
+
 /** 订单状态文案 */
 export const orderStatusText = (status: number): string => {
-  const map: Record<number, string> = {
-    0: '待付款', 1: '待接单', 2: '已接单', 3: '制作中', 4: '待取餐',
-    5: '配送中', 6: '已送达', 7: '已完成', 8: '已取消', 9: '退款中', 10: '已退款'
-  }
-  return map[status] ?? '未知'
+  return ORDER_STATUS_MAP[status]?.text ?? '未知'
+}
+
+/** 订单状态类型（用于颜色） */
+export const orderStatusType = (status: number): string => {
+  return ORDER_STATUS_MAP[status]?.type ?? 'default'
+}
+
+/** 订单状态图标 */
+export const orderStatusIcon = (status: number): string => {
+  return ORDER_STATUS_MAP[status]?.icon ?? 'package'
+}
+
+/** 格式化距离（米 → 友好显示） */
+export const formatDistance = (meters: number | undefined | null): string => {
+  if (meters == null || isNaN(Number(meters))) return '计算中...'
+  const m = Number(meters)
+  if (m < 1000) return `${Math.round(m)}米`
+  return `${(m / 1000).toFixed(1)}公里`
 }

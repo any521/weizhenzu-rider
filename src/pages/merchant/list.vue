@@ -57,11 +57,14 @@
                 <CategoryIcon name="star" :size="9" /> {{ m.rating }}
               </text>
               <text>月售 {{ m.monthlySales > 999 ? '1000+' : m.monthlySales }}</text>
-              <text class="meta-right">{{ m.deliveryTime }} · {{ m.distance || '' }}</text>
+              <text class="meta-right">{{ diningType === 3 ? '到店自取' : (m.deliveryTime + ' · ' + (m.distance || '')) }}</text>
             </view>
-            <view class="merchant-fees">
+            <view v-if="diningType !== 3" class="merchant-fees">
               <text>起送 ¥{{ m.minOrder }}</text>
               <text>配送约¥{{ m.deliveryFee }}</text>
+            </view>
+            <view v-else class="merchant-fees">
+              <text>到店自取</text>
             </view>
             <view v-if="m.tags?.length" class="merchant-tags">
               <text
@@ -107,16 +110,20 @@ const contentHeight = ref(600)
 const categoryId = ref<number | string | undefined>()
 const keyword = ref('')
 const favoriteIds = ref<Set<string>>(new Set())
+/** 当前用餐类型: 2=外卖, 3=自取 */
+const diningType = ref(2)
 
 onLoad((q: any) => {
   categoryId.value = q?.categoryId ? q.categoryId : undefined
   keyword.value = q?.keyword ? decodeURIComponent(q.keyword) : ''
+  if (q?.diningType) diningType.value = Number(q.diningType)
   uni.setNavigationBarTitle({
     title: q?.name || (keyword.value ? '搜索结果' : '商家列表'),
   })
   uni.getSystemInfo({
     success: (res: any) => {
-      contentHeight.value = res.windowHeight - 50
+      const statusBar = res.statusBarHeight || 20
+      contentHeight.value = res.windowHeight - statusBar - 44 - 50 // 状态栏+导航栏+筛选栏
     },
   })
   load()
@@ -130,7 +137,7 @@ onShow(() => {
 async function load() {
   loading.value = true
   try {
-    const params: Record<string, any> = { current: 1, size: 20 }
+    const params: Record<string, any> = { current: 1, size: 20, diningType: diningType.value }
     if (categoryId.value) params.categoryId = categoryId.value
     if (keyword.value) params.keyword = keyword.value
     const page = await getMerchantPage(params)
@@ -192,7 +199,7 @@ function loadMore() {
 }
 
 function goDetail(id: number | string) {
-  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}` })
+  uni.navigateTo({ url: `/pages/merchant/detail?id=${id}&diningType=${diningType.value}` })
 }
 </script>
 
@@ -202,6 +209,7 @@ function goDetail(id: number | string) {
 .page {
   min-height: 100vh;
   background: $bg;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px);
 }
 
 .filter-row {
@@ -211,6 +219,9 @@ function goDetail(id: number | string) {
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid $border;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .filter-chip {

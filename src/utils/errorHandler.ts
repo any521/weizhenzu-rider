@@ -3,7 +3,19 @@
  * 负责将网络错误、HTTP 错误、业务错误码分类并统一提示
  */
 
+import { message } from './message'
 import { ErrorCode } from '@/types/api'
+
+// 防重复跳转登录标记：多个并发请求同时返回 401 时，只弹一次提示
+let isRedirectingToLogin = false
+
+/**
+ * 设置/清除"正在跳转登录"标记，供 request.ts 在触发全局登出时调用
+ * 避免 errorHandler 重复弹出任何提示
+ */
+export function setRedirectingToLogin(redirecting: boolean): void {
+  isRedirectingToLogin = redirecting
+}
 
 export interface ApiError {
   type: 'network' | 'http' | 'business' | 'cancel'
@@ -17,9 +29,19 @@ export interface ApiError {
  * 将任意错误对象转换为结构化的 ApiError
  */
 export function normalizeError(error: any): ApiError {
-  // 已经是结构化错误
-  if (error?.type === 'cancel') {
-    return error as ApiError
+  // 已经是结构化错误（来自 request.ts 的手动构造），直接使用，保留后端 message
+  if (error && typeof error === 'object' && error.type) {
+    if (error.type === 'cancel') {
+      return error as ApiError
+    }
+    // 对于已结构化的错误，保留原 message，仅补全缺失字段
+    return {
+      type: error.type,
+      code: error.code,
+      statusCode: error.statusCode,
+      message: error.message || '请求失败',
+      raw: error.raw,
+    }
   }
 
   if (typeof error === 'string') {
@@ -28,12 +50,12 @@ export function normalizeError(error: any): ApiError {
 
   // 账号被禁用
   if (error?.code === ErrorCode.USER_DISABLED) {
-    return { type: 'business', code: ErrorCode.USER_DISABLED, statusCode: error?.statusCode, message: '账号已被禁用，请联系客服' }
+    return { type: 'business', code: ErrorCode.USER_DISABLED, statusCode: error?.statusCode, message: '账号已被禁用' }
   }
 
   // HTTP 状态码 / 通用 code 优先
   if (error?.statusCode === 401 || error?.code === 401 || error?.code === ErrorCode.UNAUTHORIZED) {
-    return { type: 'http', code: 401, statusCode: error?.statusCode, message: '登录已过期，请重新登录' }
+    return { type: 'http', code: 401, statusCode: error?.statusCode, message: '登录已过期' }
   }
 
   if (error?.statusCode === 403 || error?.code === 403) {
@@ -49,10 +71,10 @@ export function normalizeError(error: any): ApiError {
   }
 
   if (error?.statusCode >= 400) {
-    return { type: 'http', code: error.statusCode, statusCode: error.statusCode, message: `请求失败（${error.statusCode}）` }
+    return { type: 'http', code: error.statusCode, statusCode: error.statusCode, message: error?.message || `请求失败（${error.statusCode}）` }
   }
 
-  // 业务错误码
+  // 业务错误码 - 优先使用后端返回的 message
   if (error?.code !== undefined && error?.code !== ErrorCode.SUCCESS) {
     return { type: 'business', code: error.code, message: error.message || `业务异常（${error.code}）` }
   }
@@ -63,21 +85,28 @@ export function normalizeError(error: any): ApiError {
     return { type: 'cancel', message: '请求已取消' }
   }
   if (msg.includes('timeout')) {
-    return { type: 'network', message: '请求超时，请稍后重试' }
+    return { type: 'network', message: '网络异常，请重试' }
   }
   if (msg.includes('fail') || msg.includes('network') || msg.includes('connect')) {
-    return { type: 'network', message: '网络异常，请检查网络' }
+    return { type: 'network', message: '网络异常，请重试' }
   }
 
-  return { type: 'network', message: error?.message || '网络异常' }
+  return { type: 'network', message: '网络异常，请重试' }
 }
 
 /**
  * 统一错误提示入口
- * 取消类错误不弹提示
+ * 取消类错误不弹提示，其余错误使用 message.error() 展示
+ * 正在跳转登录时不再弹任何提示（由 clearAuthAndGoLogin 统一弹一次）
  */
 export function handleApiError(error: any): void {
+  // 正在跳转登录流程中，静默所有错误，避免并发请求重复弹窗
+  if (isRedirectingToLogin) {
+    return
+  }
+
   const err = normalizeError(error)
   if (err.type === 'cancel') return
-  uni.showToast({ title: err.message || '请求失败', icon: 'none' })
+
+  message.error(err.message || '请求失败')
 }

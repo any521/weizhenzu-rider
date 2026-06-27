@@ -130,6 +130,7 @@ function goMerchant(id: number | string) {
 .favorites-page {
   min-height: 100vh;
   background: $bg;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px);
 }
 
 .navbar {
@@ -139,8 +140,10 @@ function goMerchant(id: number | string) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
 }
 

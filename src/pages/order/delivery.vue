@@ -9,7 +9,7 @@
       <text class="status-sub">预计 {{ estimateTime }} 送达</text>
     </view>
 
-    <!-- 配送进度条（5 步） -->
+    <!-- 配送进度条（7 步） -->
     <view class="progress-card">
       <view class="progress-track">
         <view class="progress-fill" :style="{ width: progress + '%' }"></view>
@@ -21,7 +21,8 @@
           :class="['step', idx <= activeStep && 'active']"
         >
           <view class="step-dot">
-            <CategoryIcon v-if="idx <= activeStep" name="check" :size="10" />
+            <CategoryIcon v-if="idx < activeStep" name="check" :size="10" />
+            <view v-else-if="idx === activeStep" class="step-current"></view>
           </view>
           <text class="step-label">{{ step }}</text>
         </view>
@@ -52,7 +53,7 @@
         <view
           v-for="(node, idx) in tracking"
           :key="idx"
-          :class="['timeline-item', idx === 0 && 'latest']"
+          :class="['timeline-item', node.isLatest && 'latest']"
         >
           <view class="timeline-dot"></view>
           <view class="timeline-body">
@@ -80,7 +81,7 @@ import { getOrderDelivery } from '@/api'
 import type { DeliveryVO, DeliveryStepVO } from '@/types/api'
 import type { WSMessage } from '@/utils/websocket'
 
-const defaultSteps = ['已下单', '商家接单', '骑手取餐', '配送中', '已送达']
+const defaultSteps = ['已下单', '商家接单', '骑手已接单', '骑手到店', '配送中', '已送达', '已完成']
 const delivery = ref<DeliveryVO | null>(null)
 const loading = ref(false)
 const orderId = ref<string | number>('')
@@ -95,10 +96,16 @@ const steps = computed(() => {
 
 const activeStep = computed(() => {
   if (delivery.value?.steps?.length) {
-    const idx = delivery.value.steps.findIndex((s: DeliveryStepVO) => !s.done)
-    return idx === -1 ? delivery.value.steps.length - 1 : Math.max(0, idx - 1)
+    const steps = delivery.value.steps
+    // 找到最后一个done=true的索引作为当前激活步骤
+    let lastDoneIdx = -1
+    for (let i = 0; i < steps.length; i++) {
+      if (steps[i].done) lastDoneIdx = i
+      else break
+    }
+    return lastDoneIdx >= 0 ? lastDoneIdx : 0
   }
-  return 3
+  return 2 // 默认骑手已接单
 })
 
 const progress = computed(() => (activeStep.value / (steps.value.length - 1)) * 100)
@@ -125,11 +132,11 @@ const rider = computed(() => {
 const tracking = computed(() => {
   if (delivery.value?.steps?.length) {
     return delivery.value.steps
-      .slice()
-      .reverse()
-      .map((s: DeliveryStepVO) => ({
+      .filter((s: DeliveryStepVO) => s.time)
+      .map((s: DeliveryStepVO, idx: number, arr: DeliveryStepVO[]) => ({
         text: s.name,
-        time: s.time ? (s.time.length >= 16 ? s.time.slice(11, 16) : s.time) : ''
+        time: s.time ? (s.time.length >= 16 ? s.time.slice(11, 16) : s.time) : '',
+        isLatest: idx === arr.length - 1 && s.done
       }))
   }
   return []
@@ -206,7 +213,8 @@ function goMap() {
 .delivery-page {
   min-height: 100vh;
   background: $bg;
-  padding: 12px 16px 40px;
+  padding: 0 16px 40px;
+  padding-top: calc(var(--status-bar-height, 20px) + 44px + 12px);
 }
 
 .status-header {
@@ -239,6 +247,7 @@ function goMap() {
   background: $card;
   border-radius: $radius-lg;
   padding: 20px 16px;
+  margin-top: 0;
   margin-bottom: 12px;
   box-shadow: $shadow;
 }
@@ -283,6 +292,13 @@ function goMap() {
 
 .step.active .step-dot {
   background: $primary;
+}
+
+.step-current {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
 }
 
 .step-label {
